@@ -4,10 +4,16 @@ Script to analyze and document custom roles in Flight Control environment.
 This script:
 1. Lists all custom roles in the Parent CID with detailed permissions
 2. Checks which Child CIDs already have these roles
-3. Generates a detailed report for manual replication
+3. Compares permissions between Parent and Child (drift detection)
+4. Generates detailed reports including Excel format for manual replication
+5. Validates post-replication to ensure correctness
 
 Usage:
+    # Analyze and generate reports
     python analyze_roles.py --config config/credentials.json
+
+    # Validate after manual replication
+    python analyze_roles.py --config config/credentials.json --validate reports/role_analysis_TIMESTAMP.json
 """
 
 import argparse
@@ -15,7 +21,7 @@ import sys
 import os
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 from datetime import datetime
 
 # Fix Windows console encoding
@@ -37,6 +43,39 @@ from utils.formatting import (
     print_coverage_bar, print_role_item, print_child_item, create_summary_table,
     print_action_items, print_credentials_source, Colors
 )
+
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    print_warning("openpyxl not installed. Excel export will be disabled. Install with: pip install openpyxl")
+
+
+def compare_permissions(parent_perms: List[str], child_perms: List[str]) -> Dict[str, Any]:
+    """
+    Compare permissions between Parent and Child role.
+
+    Returns:
+        Dict with 'missing', 'extra', 'matching' lists and 'drift_detected' bool
+    """
+    parent_set = set(parent_perms)
+    child_set = set(child_perms)
+
+    missing = sorted(list(parent_set - child_set))  # In Parent but not in Child
+    extra = sorted(list(child_set - parent_set))     # In Child but not in Parent
+    matching = sorted(list(parent_set & child_set))  # In both
+
+    return {
+        "missing": missing,
+        "extra": extra,
+        "matching": matching,
+        "drift_detected": len(missing) > 0 or len(extra) > 0,
+        "total_parent": len(parent_perms),
+        "total_child": len(child_perms),
+        "match_percentage": (len(matching) / len(parent_perms) * 100) if len(parent_perms) > 0 else 0
+    }
 
 
 def is_custom_role(role: Dict[str, Any]) -> bool:
@@ -318,12 +357,12 @@ def get_all_children(flight_control: FlightControl, interactive: bool = False) -
     return select_children_to_check(children)
 
 
-def check_role_in_child(user_mgmt: UserManagement, role_name: str, child_cid: str) -> Dict[str, Any]:
+def check_role_in_child(user_mgmt: UserManagement, api_harness: APIHarnessV2, role_name: str, child_cid: str, parent_role: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Check if a role exists in a child CID.
+    Check if a role exists in a child CID and compare permissions.
 
     Returns:
-        Dict with 'exists' (bool) and 'role_data' (if exists)
+        Dict with 'exists' (bool), 'role_data' (if exists), and 'permissions_comparison' (if exists)
     """
     # Query roles in child
     query_response = user_mgmt.query_roles(cid=child_cid)
@@ -347,14 +386,25 @@ def check_role_in_child(user_mgmt: UserManagement, role_name: str, child_cid: st
     # Find matching role
     for role in roles:
         if role.get('display_name') == role_name:
-            return {"exists": True, "role_data": role}
+            # Get detailed permissions for child role
+            child_permissions = get_role_permissions(api_harness, role.get('id'), child_cid)
+            parent_permissions = parent_role.get('permissions', [])
+
+            # Compare permissions
+            comparison = compare_permissions(parent_permissions, child_permissions)
+
+            return {
+                "exists": True,
+                "role_data": role,
+                "permissions_comparison": comparison
+            }
 
     return {"exists": False}
 
 
-def analyze_role_coverage(user_mgmt: UserManagement, custom_roles: List[Dict[str, Any]], children: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_role_coverage(user_mgmt: UserManagement, api_harness: APIHarnessV2, custom_roles: List[Dict[str, Any]], children: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Analyze which children have which custom roles.
+    Analyze which children have which custom roles and compare permissions.
     """
     print_header("ANALYZING ROLE COVERAGE ACROSS CHILDREN", width=80)
 
@@ -384,19 +434,20 @@ def analyze_role_coverage(user_mgmt: UserManagement, custom_roles: List[Dict[str
                 suffix=f"({role_name[:20]} in {child_name[:20]})"
             )
 
-            result = check_role_in_child(user_mgmt, role_name, child_cid)
+            result = check_role_in_child(user_mgmt, api_harness, role_name, child_cid, role)
 
             coverage[role_name]["children_status"][child_cid] = {
                 "name": child_name,
                 "exists": result.get("exists", False),
                 "role_data": result.get("role_data"),
-                "error": result.get("error")
+                "error": result.get("error"),
+                "permissions_comparison": result.get("permissions_comparison")
             }
 
     print()
     print_success("Coverage analysis complete!")
 
-    # Print detailed results
+    # Print detailed results with drift detection
     print()
     print_section("DETAILED RESULTS", char="-", width=80)
     print()
@@ -404,17 +455,269 @@ def analyze_role_coverage(user_mgmt: UserManagement, custom_roles: List[Dict[str
     for role_name, data in coverage.items():
         children_status = data.get('children_status', {})
         exists_count = sum(1 for status in children_status.values() if status['exists'])
+        drift_count = sum(1 for status in children_status.values()
+                         if status.get('exists') and status.get('permissions_comparison', {}).get('drift_detected'))
 
         print(f"\n{Colors.HIGHLIGHT}▶ {role_name}{Colors.RESET}")
         print_coverage_bar("  Coverage", exists_count, len(children), width=40)
+
+        if drift_count > 0:
+            print(f"  {Colors.WARNING}⚠ Configuration drift detected in {drift_count} child(ren){Colors.RESET}")
+
         print()
 
         for cid, status in children_status.items():
             child_name = status['name']
             exists = status['exists']
-            print_status_indicator(f"    {child_name}", exists)
+
+            status_text = f"    {child_name}"
+
+            if exists:
+                comparison = status.get('permissions_comparison', {})
+                if comparison and comparison.get('drift_detected'):
+                    missing = len(comparison.get('missing', []))
+                    extra = len(comparison.get('extra', []))
+                    match_pct = comparison.get('match_percentage', 0)
+
+                    drift_info = f" ({match_pct:.0f}% match"
+                    if missing > 0:
+                        drift_info += f", {missing} missing"
+                    if extra > 0:
+                        drift_info += f", {extra} extra"
+                    drift_info += ")"
+
+                    print(f"{Colors.WARNING}    ⚠ {child_name}{drift_info}{Colors.RESET}")
+                else:
+                    print_status_indicator(status_text, True)
+            else:
+                print_status_indicator(status_text, False)
 
     return coverage
+
+
+def generate_excel_report(custom_roles: List[Dict[str, Any]], children: List[Dict[str, Any]], coverage: Dict[str, Any], output_dir: str = ".") -> str:
+    """
+    Generate Excel workbook with detailed replication guide.
+
+    Returns:
+        Path to the generated Excel file
+    """
+    if not EXCEL_AVAILABLE:
+        print_warning("Excel export skipped (openpyxl not installed)")
+        return None
+
+    output_path = Path(output_dir)
+    output_path.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    excel_file = output_path / f"role_replication_guide_{timestamp}.xlsx"
+
+    wb = Workbook()
+
+    # Styles
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=12)
+    subheader_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    subheader_font = Font(bold=True, size=11)
+    warning_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    error_fill = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
+    success_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # Sheet 1: Summary
+    ws_summary = wb.active
+    ws_summary.title = "Summary"
+
+    ws_summary['A1'] = "Custom Roles Replication Summary"
+    ws_summary['A1'].font = Font(size=16, bold=True)
+    ws_summary.merge_cells('A1:E1')
+
+    ws_summary['A3'] = "Generated:"
+    ws_summary['B3'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    ws_summary['A4'] = "Total Custom Roles:"
+    ws_summary['B4'] = len(custom_roles)
+
+    ws_summary['A5'] = "Total Child CIDs:"
+    ws_summary['B5'] = len(children)
+
+    # Coverage matrix
+    ws_summary['A7'] = "Coverage Matrix"
+    ws_summary['A7'].font = subheader_font
+    ws_summary['A7'].fill = subheader_fill
+
+    # Headers
+    row = 8
+    ws_summary[f'A{row}'] = "Role Name"
+    ws_summary[f'A{row}'].font = header_font
+    ws_summary[f'A{row}'].fill = header_fill
+
+    for col_idx, child in enumerate(children, start=2):
+        cell = ws_summary.cell(row=row, column=col_idx)
+        cell.value = child.get('name')
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+
+    # Data rows
+    for role_name, data in coverage.items():
+        row += 1
+        ws_summary[f'A{row}'] = role_name
+        ws_summary[f'A{row}'].font = Font(bold=True)
+
+        children_status = data.get('children_status', {})
+
+        for col_idx, child in enumerate(children, start=2):
+            child_cid = child.get('child_cid')
+            status = children_status.get(child_cid, {})
+            cell = ws_summary.cell(row=row, column=col_idx)
+
+            if status.get('exists'):
+                comparison = status.get('permissions_comparison', {})
+                if comparison and comparison.get('drift_detected'):
+                    match_pct = comparison.get('match_percentage', 0)
+                    cell.value = f"⚠ {match_pct:.0f}%"
+                    cell.fill = warning_fill
+                else:
+                    cell.value = "✓"
+                    cell.fill = success_fill
+            else:
+                cell.value = "✗"
+                cell.fill = error_fill
+
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = thin_border
+
+    # Auto-adjust column widths
+    ws_summary.column_dimensions['A'].width = 40
+    for col_idx in range(2, 2 + len(children)):
+        ws_summary.column_dimensions[chr(64 + col_idx)].width = 20
+
+    # Sheet 2: Child CIDs
+    ws_children = wb.create_sheet("Child CIDs")
+    ws_children['A1'] = "Child CID"
+    ws_children['B1'] = "CID"
+    ws_children['A1'].font = header_font
+    ws_children['A1'].fill = header_fill
+    ws_children['B1'].font = header_font
+    ws_children['B1'].fill = header_fill
+
+    for idx, child in enumerate(children, start=2):
+        ws_children[f'A{idx}'] = child.get('name')
+        ws_children[f'B{idx}'] = child.get('child_cid')
+
+    ws_children.column_dimensions['A'].width = 40
+    ws_children.column_dimensions['B'].width = 35
+
+    # Sheet for each role with permissions
+    for role in custom_roles:
+        role_name = role.get('display_name', 'Unknown')
+        # Sanitize sheet name (Excel limit: 31 chars, no special chars)
+        sheet_name = role_name[:31].replace('/', '-').replace('\\', '-').replace(':', '-')
+
+        ws_role = wb.create_sheet(sheet_name)
+
+        # Role header
+        ws_role['A1'] = "Role Name:"
+        ws_role['B1'] = role_name
+        ws_role['A1'].font = Font(bold=True)
+        ws_role['B1'].font = Font(size=12)
+
+        ws_role['A2'] = "Description:"
+        ws_role['B2'] = role.get('description', 'No description')
+
+        ws_role['A3'] = "Role ID:"
+        ws_role['B3'] = role.get('id')
+
+        # Coverage status
+        role_coverage = coverage.get(role_name, {})
+        children_status = role_coverage.get('children_status', {})
+
+        ws_role['A5'] = "Replication Status by Child CID"
+        ws_role['A5'].font = subheader_font
+        ws_role['A5'].fill = subheader_fill
+
+        row = 6
+        ws_role[f'A{row}'] = "Child CID"
+        ws_role[f'B{row}'] = "Status"
+        ws_role[f'C{row}'] = "Permissions Match"
+        ws_role[f'D{row}'] = "Missing Permissions"
+        ws_role[f'E{row}'] = "Extra Permissions"
+
+        for col in ['A', 'B', 'C', 'D', 'E']:
+            ws_role[f'{col}{row}'].font = header_font
+            ws_role[f'{col}{row}'].fill = header_fill
+
+        for child in children:
+            row += 1
+            child_cid = child.get('child_cid')
+            child_name = child.get('name')
+            status = children_status.get(child_cid, {})
+
+            ws_role[f'A{row}'] = child_name
+
+            if status.get('exists'):
+                ws_role[f'B{row}'] = "✓ Exists"
+                ws_role[f'B{row}'].fill = success_fill
+
+                comparison = status.get('permissions_comparison', {})
+                if comparison:
+                    match_pct = comparison.get('match_percentage', 0)
+                    ws_role[f'C{row}'] = f"{match_pct:.0f}%"
+
+                    missing_count = len(comparison.get('missing', []))
+                    extra_count = len(comparison.get('extra', []))
+
+                    ws_role[f'D{row}'] = missing_count
+                    ws_role[f'E{row}'] = extra_count
+
+                    if comparison.get('drift_detected'):
+                        ws_role[f'C{row}'].fill = warning_fill
+                        if missing_count > 0:
+                            ws_role[f'D{row}'].fill = error_fill
+                        if extra_count > 0:
+                            ws_role[f'E{row}'].fill = warning_fill
+                    else:
+                        ws_role[f'C{row}'].fill = success_fill
+            else:
+                ws_role[f'B{row}'] = "✗ Missing"
+                ws_role[f'B{row}'].fill = error_fill
+
+        # Permissions list
+        permissions = role.get('permissions', [])
+        perm_start_row = row + 3
+
+        ws_role[f'A{perm_start_row}'] = f"Permissions ({len(permissions)} total)"
+        ws_role[f'A{perm_start_row}'].font = subheader_font
+        ws_role[f'A{perm_start_row}'].fill = subheader_fill
+
+        ws_role[f'A{perm_start_row + 1}'] = "☐"
+        ws_role[f'B{perm_start_row + 1}'] = "Permission"
+        ws_role[f'A{perm_start_row + 1}'].font = header_font
+        ws_role[f'A{perm_start_row + 1}'].fill = header_fill
+        ws_role[f'B{perm_start_row + 1}'].font = header_font
+        ws_role[f'B{perm_start_row + 1}'].fill = header_fill
+
+        for idx, perm in enumerate(permissions, start=perm_start_row + 2):
+            ws_role[f'A{idx}'] = "☐"
+            ws_role[f'B{idx}'] = perm
+            ws_role[f'A{idx}'].alignment = Alignment(horizontal='center')
+
+        # Column widths
+        ws_role.column_dimensions['A'].width = 5
+        ws_role.column_dimensions['B'].width = 60
+        ws_role.column_dimensions['C'].width = 18
+        ws_role.column_dimensions['D'].width = 20
+        ws_role.column_dimensions['E'].width = 20
+
+    # Save
+    wb.save(excel_file)
+    return str(excel_file)
 
 
 def generate_report(custom_roles: List[Dict[str, Any]], children: List[Dict[str, Any]], coverage: Dict[str, Any], output_dir: str = "."):
@@ -446,7 +749,7 @@ def generate_report(custom_roles: List[Dict[str, Any]], children: List[Dict[str,
 
     print(f"✓ JSON report saved: {json_file}")
 
-    # 2. Text Report (human readable)
+    # 2. Text Report (human readable with drift detection)
     txt_file = output_path / f"role_analysis_{timestamp}.txt"
 
     with open(txt_file, 'w', encoding='utf-8') as f:
@@ -470,14 +773,38 @@ def generate_report(custom_roles: List[Dict[str, Any]], children: List[Dict[str,
 
             exists_count = sum(1 for status in data['children_status'].values() if status['exists'])
             missing_count = len(children) - exists_count
+            drift_count = sum(1 for status in data['children_status'].values()
+                            if status.get('exists') and status.get('permissions_comparison', {}).get('drift_detected'))
 
             f.write(f"  Status: {exists_count}/{len(children)} children have this role\n")
+
+            if drift_count > 0:
+                f.write(f"  ⚠ Configuration drift detected in {drift_count} child(ren)\n")
 
             if missing_count > 0:
                 f.write(f"  Missing in:\n")
                 for cid, status in data['children_status'].items():
                     if not status['exists']:
                         f.write(f"    - {status['name']} (CID: {cid})\n")
+
+            # Drift details
+            if drift_count > 0:
+                f.write(f"  Drift details:\n")
+                for cid, status in data['children_status'].items():
+                    if status.get('exists'):
+                        comparison = status.get('permissions_comparison', {})
+                        if comparison and comparison.get('drift_detected'):
+                            child_name = status['name']
+                            missing = len(comparison.get('missing', []))
+                            extra = len(comparison.get('extra', []))
+                            match_pct = comparison.get('match_percentage', 0)
+
+                            f.write(f"    - {child_name}: {match_pct:.0f}% match")
+                            if missing > 0:
+                                f.write(f", {missing} missing permissions")
+                            if extra > 0:
+                                f.write(f", {extra} extra permissions")
+                            f.write("\n")
 
             permissions = data['parent_role'].get('permissions', [])
             if permissions:
@@ -647,10 +974,16 @@ def generate_report(custom_roles: List[Dict[str, Any]], children: List[Dict[str,
 
     print(f"✓ Replication guide saved: {guide_file}")
 
+    # 4. Excel Report (interactive replication guide)
+    excel_file = generate_excel_report(custom_roles, children, coverage, output_dir)
+    if excel_file:
+        print(f"✓ Excel guide saved: {excel_file}")
+
     return {
         "json_report": str(json_file),
         "text_report": str(txt_file),
-        "replication_guide": str(guide_file)
+        "replication_guide": str(guide_file),
+        "excel_guide": excel_file
     }
 
 
@@ -668,6 +1001,236 @@ def check_response(response: Dict[str, Any], operation: str, verbose: bool = Tru
                 print(f"  {error.get('message', 'Unknown error')}")
 
     return False
+
+
+def validate_replication(snapshot_file: str, client_id: str, client_secret: str, base_url: str):
+    """
+    Validate that roles have been correctly replicated by comparing current state
+    with a previous snapshot.
+    """
+    print_header("VALIDATION MODE - CHECKING REPLICATION STATUS", width=80, color=Colors.INFO)
+
+    # Load snapshot
+    snapshot_path = Path(snapshot_file)
+    if not snapshot_path.exists():
+        print_error(f"Snapshot file not found: {snapshot_file}")
+        sys.exit(1)
+
+    print_info(f"Loading snapshot: {snapshot_file}")
+    with open(snapshot_path, 'r', encoding='utf-8') as f:
+        snapshot = json.load(f)
+
+    snapshot_time = snapshot.get('timestamp', 'Unknown')
+    print_success(f"Snapshot loaded (created: {snapshot_time})")
+    print()
+
+    # Initialize API clients
+    print_info("Authenticating to Falcon API...")
+    flight_control = FlightControl(
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=base_url
+    )
+
+    user_mgmt = UserManagement(
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=base_url
+    )
+
+    api_harness = APIHarnessV2(
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=base_url
+    )
+
+    print_success("Authentication successful!")
+    print()
+
+    # Get snapshot data
+    snapshot_roles = snapshot.get('custom_roles', [])
+    snapshot_children = snapshot.get('children', [])
+    snapshot_coverage = snapshot.get('coverage', {})
+
+    print_info(f"Snapshot contains {len(snapshot_roles)} role(s) across {len(snapshot_children)} Child CID(s)")
+    print()
+
+    # Re-analyze current state
+    print_header("RE-ANALYZING CURRENT STATE", width=80)
+
+    # Get current children
+    query_response = flight_control.queryChildren()
+    child_cids = extract_resources(query_response)
+    details_response = flight_control.getChildren(ids=child_cids)
+    current_children = extract_resources(details_response)
+
+    # Filter to only children that were in snapshot
+    snapshot_cids = {c.get('child_cid') for c in snapshot_children}
+    current_children = [c for c in current_children if c.get('child_cid') in snapshot_cids]
+
+    print_success(f"Found {len(current_children)} Child CID(s) from snapshot")
+    print()
+
+    # Analyze current coverage
+    current_coverage = {}
+    validation_results = {}
+
+    for role in snapshot_roles:
+        role_name = role.get('display_name')
+        role_id = role.get('id')
+
+        print_info(f"Validating: {role_name}")
+
+        current_coverage[role_name] = {
+            "role_id": role_id,
+            "parent_role": role,
+            "children_status": {}
+        }
+
+        validation_results[role_name] = {
+            "total": len(current_children),
+            "passed": 0,
+            "failed": 0,
+            "drift": 0,
+            "details": {}
+        }
+
+        for child in current_children:
+            child_cid = child.get('child_cid')
+            child_name = child.get('name')
+
+            # Get current status
+            result = check_role_in_child(user_mgmt, api_harness, role_name, child_cid, role)
+
+            current_coverage[role_name]["children_status"][child_cid] = {
+                "name": child_name,
+                "exists": result.get("exists", False),
+                "role_data": result.get("role_data"),
+                "error": result.get("error"),
+                "permissions_comparison": result.get("permissions_comparison")
+            }
+
+            # Compare with snapshot
+            snapshot_status = snapshot_coverage.get(role_name, {}).get('children_status', {}).get(child_cid, {})
+            snapshot_existed = snapshot_status.get('exists', False)
+            currently_exists = result.get('exists', False)
+
+            validation_details = {
+                "child_name": child_name,
+                "expected": "exists" if not snapshot_existed else "exists",
+                "actual": "exists" if currently_exists else "missing",
+                "status": "pass" if currently_exists else "fail"
+            }
+
+            if currently_exists:
+                comparison = result.get('permissions_comparison', {})
+                if comparison:
+                    if comparison.get('drift_detected'):
+                        validation_details["status"] = "drift"
+                        validation_details["drift_info"] = {
+                            "missing": len(comparison.get('missing', [])),
+                            "extra": len(comparison.get('extra', [])),
+                            "match_percentage": comparison.get('match_percentage', 0)
+                        }
+                        validation_results[role_name]["drift"] += 1
+                    else:
+                        validation_results[role_name]["passed"] += 1
+                else:
+                    validation_results[role_name]["passed"] += 1
+            else:
+                validation_results[role_name]["failed"] += 1
+
+            validation_results[role_name]["details"][child_cid] = validation_details
+
+        print()
+
+    # Display results
+    print_header("VALIDATION RESULTS", width=80, color=Colors.SUCCESS)
+    print()
+
+    total_checks = 0
+    total_passed = 0
+    total_failed = 0
+    total_drift = 0
+
+    for role_name, results in validation_results.items():
+        total_checks += results["total"]
+        total_passed += results["passed"]
+        total_failed += results["failed"]
+        total_drift += results["drift"]
+
+        passed = results["passed"]
+        failed = results["failed"]
+        drift = results["drift"]
+        total = results["total"]
+
+        status_color = Colors.SUCCESS if failed == 0 else Colors.ERROR
+        drift_indicator = f" ({drift} with drift)" if drift > 0 else ""
+
+        print(f"{status_color}▶ {role_name}{Colors.RESET}")
+        print(f"  {passed}/{total} passed, {failed} failed{drift_indicator}")
+
+        # Show failed or drift details
+        for cid, detail in results["details"].items():
+            if detail["status"] == "fail":
+                print(f"  {Colors.ERROR}  ✗ {detail['child_name']}: Role still missing{Colors.RESET}")
+            elif detail["status"] == "drift":
+                drift_info = detail.get("drift_info", {})
+                match_pct = drift_info.get("match_percentage", 0)
+                missing = drift_info.get("missing", 0)
+                extra = drift_info.get("extra", 0)
+                print(f"  {Colors.WARNING}  ⚠ {detail['child_name']}: {match_pct:.0f}% match ({missing} missing, {extra} extra){Colors.RESET}")
+
+        print()
+
+    # Overall summary
+    success_rate = (total_passed / total_checks * 100) if total_checks > 0 else 0
+
+    print_section("", char="=", width=80)
+    print_summary_box("OVERALL VALIDATION SUMMARY", {
+        "Total checks": total_checks,
+        "Passed": f"{total_passed} ({success_rate:.1f}%)",
+        "Failed (still missing)": total_failed,
+        "Drift detected": total_drift,
+        "Validation status": "✓ PASSED" if total_failed == 0 else "✗ INCOMPLETE"
+    }, width=80)
+
+    if total_failed > 0:
+        print()
+        print_warning(f"{total_failed} role(s) still need to be created manually in Child CIDs")
+
+    if total_drift > 0:
+        print()
+        print_warning(f"{total_drift} role(s) have permission drift and may need adjustment")
+
+    print()
+
+    # Generate validation report
+    output_dir = Path(snapshot_file).parent
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    validation_file = output_dir / f"validation_report_{timestamp}.json"
+
+    validation_report = {
+        "timestamp": datetime.now().isoformat(),
+        "snapshot_file": str(snapshot_file),
+        "snapshot_timestamp": snapshot_time,
+        "validation_results": validation_results,
+        "summary": {
+            "total_checks": total_checks,
+            "passed": total_passed,
+            "failed": total_failed,
+            "drift": total_drift,
+            "success_rate": success_rate
+        }
+    }
+
+    with open(validation_file, 'w', encoding='utf-8') as f:
+        json.dump(validation_report, f, indent=2)
+
+    print_success(f"Validation report saved: {validation_file}")
+    print()
+
+    sys.exit(0 if total_failed == 0 else 1)
 
 
 def main():
@@ -703,6 +1266,10 @@ def main():
         action="store_true",
         help="Run in non-interactive mode (analyze all roles and all children)"
     )
+    parser.add_argument(
+        "--validate",
+        help="Validation mode: compare current state with a previous snapshot JSON file"
+    )
 
     args = parser.parse_args()
 
@@ -726,6 +1293,11 @@ def main():
         print('  $env:FALCON_CLIENT_ID = "your_client_id"')
         print('  $env:FALCON_CLIENT_SECRET = "your_client_secret"')
         sys.exit(1)
+
+    # Validation mode
+    if args.validate:
+        validate_replication(args.validate, client_id, client_secret, base_url)
+        return  # validate_replication exits on its own
 
     try:
         print_header("FLIGHT CONTROL - CUSTOM ROLES ANALYZER", width=80, color=Colors.SUCCESS)
@@ -780,7 +1352,7 @@ def main():
             sys.exit(0)
 
         # Step 3: Analyze coverage
-        coverage = analyze_role_coverage(user_mgmt, custom_roles, children)
+        coverage = analyze_role_coverage(user_mgmt, api_harness, custom_roles, children)
 
         # Step 4: Display summary
         create_summary_table(coverage, children)
@@ -797,10 +1369,17 @@ def main():
             "Total checks performed": len(custom_roles) * len(children),
             "JSON Report": reports['json_report'],
             "Text Report": reports['text_report'],
-            "Replication Guide": reports['replication_guide']
+            "Replication Guide": reports['replication_guide'],
+            "Excel Guide": reports.get('excel_guide', 'Not generated')
         }, width=90)
 
         print_success("All reports generated successfully!", prefix="✓")
+        print()
+        print_info("Next steps:")
+        print("  1. Review the reports in the output directory")
+        print("  2. Use the Excel guide for step-by-step manual replication")
+        print("  3. After replication, validate with:")
+        print(f"     python analyze_roles.py --config <config> --validate {reports['json_report']}")
         print()
 
     except KeyboardInterrupt:
@@ -873,7 +1452,7 @@ def main():
             sys.exit(0)
 
         # Step 3: Analyze coverage
-        coverage = analyze_role_coverage(user_mgmt, custom_roles, children)
+        coverage = analyze_role_coverage(user_mgmt, api_harness, custom_roles, children)
 
         # Step 4: Generate reports
         reports = generate_report(custom_roles, children, coverage, args.output_dir)

@@ -132,6 +132,11 @@ grep -rE "[0-9a-f]{32}" . --include="*.md" --include="*.py" | grep -v "a1b2c3d4e
   - ✅ Force pushed to origin/main
   - ✅ Commits e224d53 through b1b878c overwritten
   - ✅ All CIDs permanently removed from GitHub history
+- [x] Test data files removed (commit 544575b - 2026-03-13)
+  - ✅ Deleted role_replication_guide_20260313_153300.xlsx (40 CID occurrences)
+  - ✅ Deleted role_analysis_20260313_153300.json (multiple CIDs)
+  - ✅ Deleted role_analysis_20260313_153300.txt (multiple CIDs)
+  - ✅ Updated .gitignore to block future .xlsx/.csv/test_reports commits
 - [ ] API credentials rotated (if needed)
 - [ ] Team notified
 

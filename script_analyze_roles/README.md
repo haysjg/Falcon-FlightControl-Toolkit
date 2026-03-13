@@ -108,7 +108,7 @@ python analyze_roles.py --config ../config/credentials.json --validate reports/r
 
 ▶ VMA-Custom-Role
   4/4 passed, 0 failed (1 with drift)
-  ⚠ SE FR FCTL - Servers: 95% match (2 missing, 0 extra)
+  ⚠ Production Servers: 95% match (2 missing, 0 extra)
 
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║                         OVERALL VALIDATION SUMMARY                         ║
@@ -166,16 +166,16 @@ The script uses color-coded output for easy reading:
 ▶ mytest1
   Coverage [██████████░░░░░░░░░░░░░░░░░░░░] 25%
 
-    SE FR FCTL - Servers              [✗ MISSING]
-    SE FR FCTL - Workstations A       [✓ EXISTS]
-    SE FR FCTL - Workstations B       [✗ MISSING]
+    Production Servers              [✗ MISSING]
+    Development Workstations A       [✓ EXISTS]
+    Development Workstations B       [✗ MISSING]
 
 ▶ VMA-Custom-Role
   Coverage [██████████████████████████████] 100%
   ⚠ Configuration drift detected in 1 child(ren)
 
-    SE FR FCTL - Servers              [⚠ 95% match, 2 missing]
-    SE FR FCTL - Workstations A       [✓ EXISTS]
+    Production Servers              [⚠ 95% match, 2 missing]
+    Development Workstations A       [✓ EXISTS]
 ```
 
 See [VISUAL_OUTPUT_FEATURE.md](VISUAL_OUTPUT_FEATURE.md) for complete visual feature documentation.

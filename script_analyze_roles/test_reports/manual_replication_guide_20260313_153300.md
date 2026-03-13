@@ -21,7 +21,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 **Role ID:** `71078f5c73a44ae09be31c9116c81c20`  
 **Permissions Count:** 0  
 
-**✗ Missing in:** SE FR FCTL - Servers, SE FR FCTL - Workstations A, SE FR FCTL - Workstations B, SE FR FCTL - Workstations Global  
+**✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
 
 ⚠️ **Note:** Permissions could not be automatically retrieved. Please review the role in the Parent CID console.
 
@@ -31,7 +31,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 **Role ID:** `89cf004ef6f64a29956c0e64b11a1972`  
 **Permissions Count:** 0  
 
-**✗ Missing in:** SE FR FCTL - Servers, SE FR FCTL - Workstations A, SE FR FCTL - Workstations B, SE FR FCTL - Workstations Global  
+**✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
 
 ⚠️ **Note:** Permissions could not be automatically retrieved. Please review the role in the Parent CID console.
 
@@ -41,7 +41,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 **Role ID:** `aa2452cef20f4c39a6cc78f492485848`  
 **Permissions Count:** 0  
 
-**✗ Missing in:** SE FR FCTL - Servers, SE FR FCTL - Workstations A, SE FR FCTL - Workstations B, SE FR FCTL - Workstations Global  
+**✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
 
 ⚠️ **Note:** Permissions could not be automatically retrieved. Please review the role in the Parent CID console.
 
@@ -51,7 +51,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 **Role ID:** `03455110e32b49caa701c3e4571519dd`  
 **Permissions Count:** 0  
 
-**✗ Missing in:** SE FR FCTL - Servers, SE FR FCTL - Workstations A, SE FR FCTL - Workstations B, SE FR FCTL - Workstations Global  
+**✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
 
 ⚠️ **Note:** Permissions could not be automatically retrieved. Please review the role in the Parent CID console.
 
@@ -61,7 +61,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 **Role ID:** `346cbb107a2d4833b22a5f69e1f14b4c`  
 **Permissions Count:** 0  
 
-**✗ Missing in:** SE FR FCTL - Servers, SE FR FCTL - Workstations A, SE FR FCTL - Workstations B, SE FR FCTL - Workstations Global  
+**✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
 
 ⚠️ **Note:** Permissions could not be automatically retrieved. Please review the role in the Parent CID console.
 
@@ -71,7 +71,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 **Role ID:** `4ebf377b2bd9434b8c236a671e46b417`  
 **Permissions Count:** 0  
 
-**✗ Missing in:** SE FR FCTL - Servers, SE FR FCTL - Workstations A, SE FR FCTL - Workstations B, SE FR FCTL - Workstations Global  
+**✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
 
 ⚠️ **Note:** Permissions could not be automatically retrieved. Please review the role in the Parent CID console.
 
@@ -81,7 +81,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 **Role ID:** `6ef2c3e007894bf08ed4d68d937fd5de`  
 **Permissions Count:** 0  
 
-**✗ Missing in:** SE FR FCTL - Servers, SE FR FCTL - Workstations A, SE FR FCTL - Workstations B, SE FR FCTL - Workstations Global  
+**✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
 
 ⚠️ **Note:** Permissions could not be automatically retrieved. Please review the role in the Parent CID console.
 
@@ -121,52 +121,52 @@ Use the coverage information above to determine which Child CIDs need each role.
 
 ### mytest1
 
-- [ ] SE FR FCTL - Servers
-- [ ] SE FR FCTL - Workstations A
-- [ ] SE FR FCTL - Workstations B
-- [ ] SE FR FCTL - Workstations Global
+- [ ] Production Servers
+- [ ] Development Workstations A
+- [ ] Development Workstations B
+- [ ] Enterprise Workstations
 
 ### VMA-Custom-Host
 
-- [ ] SE FR FCTL - Servers
-- [ ] SE FR FCTL - Workstations A
-- [ ] SE FR FCTL - Workstations B
-- [ ] SE FR FCTL - Workstations Global
+- [ ] Production Servers
+- [ ] Development Workstations A
+- [ ] Development Workstations B
+- [ ] Enterprise Workstations
 
 ### Custom JIT Authorizer
 
-- [ ] SE FR FCTL - Servers
-- [ ] SE FR FCTL - Workstations A
-- [ ] SE FR FCTL - Workstations B
-- [ ] SE FR FCTL - Workstations Global
+- [ ] Production Servers
+- [ ] Development Workstations A
+- [ ] Development Workstations B
+- [ ] Enterprise Workstations
 
 ### Custom JIT Requester
 
-- [ ] SE FR FCTL - Servers
-- [ ] SE FR FCTL - Workstations A
-- [ ] SE FR FCTL - Workstations B
-- [ ] SE FR FCTL - Workstations Global
+- [ ] Production Servers
+- [ ] Development Workstations A
+- [ ] Development Workstations B
+- [ ] Enterprise Workstations
 
 ### RIL
 
-- [ ] SE FR FCTL - Servers
-- [ ] SE FR FCTL - Workstations A
-- [ ] SE FR FCTL - Workstations B
-- [ ] SE FR FCTL - Workstations Global
+- [ ] Production Servers
+- [ ] Development Workstations A
+- [ ] Development Workstations B
+- [ ] Enterprise Workstations
 
 ### VMA-Custom-Role
 
-- [ ] SE FR FCTL - Servers
-- [ ] SE FR FCTL - Workstations A
-- [ ] SE FR FCTL - Workstations B
-- [ ] SE FR FCTL - Workstations Global
+- [ ] Production Servers
+- [ ] Development Workstations A
+- [ ] Development Workstations B
+- [ ] Enterprise Workstations
 
 ### mytest2
 
-- [ ] SE FR FCTL - Servers
-- [ ] SE FR FCTL - Workstations A
-- [ ] SE FR FCTL - Workstations B
-- [ ] SE FR FCTL - Workstations Global
+- [ ] Production Servers
+- [ ] Development Workstations A
+- [ ] Development Workstations B
+- [ ] Enterprise Workstations
 
 ## Additional Resources
 

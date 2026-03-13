@@ -74,10 +74,10 @@ SELECT CHILD CIDs TO CHECK
 
 Found 4 Child CID(s):
 
-  [1] SE FR FCTL - Servers
-  [2] SE FR FCTL - Workstations A
-  [3] SE FR FCTL - Workstations B
-  [4] SE FR FCTL - Workstations Global
+  [1] Production Servers
+  [2] Development Workstations A
+  [3] Development Workstations B
+  [4] Enterprise Workstations
 
 Selection options:
   - Enter child numbers separated by commas (e.g., 1,2,4)
@@ -87,8 +87,8 @@ Selection options:
 Select children to check: 1,2    ← User selects children 1 and 2
 
 Selected 2 child(ren):
-  - SE FR FCTL - Servers
-  - SE FR FCTL - Workstations A
+  - Production Servers
+  - Development Workstations A
 ```
 
 **Result:** Analyzes only 2 roles × 2 children = 4 checks (instead of 7 × 4 = 28)

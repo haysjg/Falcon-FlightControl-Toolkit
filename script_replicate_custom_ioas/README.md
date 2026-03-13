@@ -100,14 +100,14 @@ The script provides rich visual feedback:
 ℹ️ Authenticating to Falcon API...
 ✓ Authentication successful!
 
-▶ Target: SE FR FCTL - Servers
+▶ Target: Production Servers
     ⠋ Replicating "Suspicious PowerShell Execution"...
     ✓ Replicated: Suspicious PowerShell Execution
       Applied to 3 prevention policy/policies
     ✓ Replicated: Credential Dumping Detection
       Applied to 3 prevention policy/policies
 
-Overall progress [██████████████████████████████] 100% (SE FR FCTL - Servers)
+Overall progress [██████████████████████████████] 100% (Production Servers)
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                         REPLICATION COMPLETE                                 ║
@@ -418,15 +418,15 @@ Select Custom IOAs to replicate: 1,2
 
 Available Child CIDs:
 
-  [1] SE FR FCTL - Servers
+  [1] Production Servers
       CID: 6946f672...
 
-  [2] SE FR FCTL - Workstations A
+  [2] Development Workstations A
       CID: 8cda703d...
 
 Select Child CIDs: 1
 ✓ Selected 1 Child CID(s):
-  • SE FR FCTL - Servers
+  • Production Servers
 
 ────────────────────────────────────────────────────────────────────────────────
 PREVENTION POLICIES
@@ -444,14 +444,14 @@ Apply to all prevention policies? (yes/no): yes
                           REPLICATING CUSTOM IOAs
 ════════════════════════════════════════════════════════════════════════════════
 
-▶ Target: SE FR FCTL - Servers
+▶ Target: Production Servers
     ⠋ Replicating "Lateral Movement Detection"...
     ✓ Replicated: Lateral Movement Detection
       Applied to 3 prevention policy/policies
     ⠋ Replicating "Credential Access"...
     ✓ Replicated: Credential Access
       Applied to 3 prevention policy/policies
-Overall progress [██████████████████████████████] 100% (SE FR FCTL - Servers)
+Overall progress [██████████████████████████████] 100% (Production Servers)
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                         REPLICATION COMPLETE                                 ║

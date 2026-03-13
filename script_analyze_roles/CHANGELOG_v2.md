@@ -23,8 +23,8 @@ Avant, le script vérifiait seulement **si** un rôle existait dans un Child CID
   Coverage [██████████████████████████████] 100%
   ⚠ Configuration drift detected in 1 child(ren)
 
-    ⚠ SE FR FCTL - Servers (95% match, 2 missing, 0 extra)
-    ✓ SE FR FCTL - Workstations A
+    ⚠ Production Servers (95% match, 2 missing, 0 extra)
+    ✓ Development Workstations A
 ```
 
 ### Rapports enrichis

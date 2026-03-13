@@ -308,31 +308,31 @@ The exported CSV contains **19 columns** with comprehensive device and policy in
 
 ```csv
 CID Name,CID,CID Type,Device ID,Hostname,OS Version,Platform,Last Seen,Status,Host Groups,Prevention Policy,Prevention Status,Response Policy,Response Status,Sensor Update Policy,Sensor Update Status,Agent Version,Service Provider,Service Provider Account ID
-SE FR FCTL - Servers,6946f672680e49448ef343eddf5dd9d7,CHILD,93cf90e6c30545ffbe3ebce3a7548e71,SE-VMA-W2019-DT,Windows Server 2019,Windows,2026-03-01T01:02:38Z,normal,Windows Servers,platform_default,Applied,platform_default,Applied,platform_default,Applied,7.33.20505.0,AWS_EC2_V2,517716713836
+Production Servers,a1b2c3d4e5f6789012345678901234ab,CHILD,f9e8d7c6b5a4321098765432109876cd,PROD-WEB-01,Windows Server 2019,Windows,2026-03-01T01:02:38Z,normal,Production Web Servers,Corporate Standard,Applied,Standard Response,Applied,Sensor Update v1,Applied,7.33.20505.0,AWS_EC2_V2,123456789012
 ```
 
 ### Readable Format
 
 ```
-CID Name                 : SE FR FCTL - Servers
-CID                      : 6946f672680e49448ef343eddf5dd9d7
+CID Name                 : Production Servers
+CID                      : a1b2c3d4e5f6789012345678901234ab
 CID Type                 : CHILD
-Device ID                : 93cf90e6c30545ffbe3ebce3a7548e71
-Hostname                 : SE-VMA-W2019-DT
+Device ID                : f9e8d7c6b5a4321098765432109876cd
+Hostname                 : PROD-WEB-01
 OS Version               : Windows Server 2019
 Platform                 : Windows
 Last Seen                : 2026-03-01T01:02:38Z
 Status                   : normal
-Host Groups              : Windows Servers
-Prevention Policy        : platform_default
+Host Groups              : Production Web Servers
+Prevention Policy        : Corporate Standard
 Prevention Status        : Applied ✅
-Response Policy          : platform_default
+Response Policy          : Standard Response
 Response Status          : Applied ✅
-Sensor Update Policy     : platform_default
+Sensor Update Policy     : Sensor Update v1
 Sensor Update Status     : Applied ✅
 Agent Version            : 7.33.20505.0
 Service Provider         : AWS_EC2_V2
-Service Provider Account ID: 517716713836
+Service Provider Account ID: 123456789012
 ```
 
 ## Visual Output
@@ -347,7 +347,7 @@ The script provides real-time visual feedback:
 ℹ️ Authenticating to Falcon API...
 ✓ Authentication successful!
 
-▶ Processing: SE FR FCTL - Servers (CHILD)
+▶ Processing: Production Servers (CHILD)
 ℹ️   Querying devices...
 ✓   Found 147 device(s)
 ℹ️   Retrieving device details...
@@ -359,7 +359,7 @@ The script provides real-time visual feedback:
 ℹ️   Converting to CSV format...
 ✓   Processed 147 device(s)
 
-Overall progress [██████████████████████████████] 100% (SE FR FCTL - Servers)
+Overall progress [██████████████████████████████] 100% (Production Servers)
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                               EXPORT COMPLETE                                ║
@@ -527,7 +527,7 @@ print(f"Devices per CID:\n{by_cid}")
 csvstat devices_export_20260312_143052.csv
 
 # Filter specific CID
-csvgrep -c "CID Name" -m "SE FR FCTL - Servers" devices_export_20260312_143052.csv
+csvgrep -c "CID Name" -m "Production Servers" devices_export_20260312_143052.csv
 
 # Count by platform
 csvcut -c Platform devices_export_20260312_143052.csv | tail -n +2 | sort | uniq -c

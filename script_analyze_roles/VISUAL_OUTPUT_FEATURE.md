@@ -42,8 +42,8 @@ Authenticating...
 
 [*] Checking role: mytest1
 --------------------------------------------------------------------------------
-  Checking in: SE FR FCTL - Servers... ✗ MISSING
-  Checking in: SE FR FCTL - Workstations A... ✗ MISSING
+  Checking in: Production Servers... ✗ MISSING
+  Checking in: Development Workstations A... ✗ MISSING
 ```
 
 ### After (Colored & Styled)
@@ -58,8 +58,8 @@ Authenticating...
 ▶ mytest1
   Coverage [██████░░░░░░░░░░░░░░░░░░] 25%
 
-    SE FR FCTL - Servers              [✗ MISSING]
-    SE FR FCTL - Workstations A       [✗ MISSING]
+    Production Servers              [✗ MISSING]
+    Development Workstations A       [✗ MISSING]
 ```
 
 ## New Features
@@ -92,8 +92,8 @@ Checking coverage [████████████████████]
 
 ▶ mytest1
   ✗ Missing in 2 child(ren):
-    • SE FR FCTL - Servers
-    • SE FR FCTL - Workstations A
+    • Production Servers
+    • Development Workstations A
 ```
 
 ### 5. Summary Box
@@ -188,10 +188,10 @@ Select roles to analyze: 1,2
 ▶ mytest1
   Coverage [██████████░░░░░░░░░░░░░░░░░░░░] 25%
 
-    SE FR FCTL - Servers              [✗ MISSING]
-    SE FR FCTL - Workstations A       [✗ MISSING]
-    SE FR FCTL - Workstations B       [✓ EXISTS]
-    SE FR FCTL - Workstations Global  [✗ MISSING]
+    Production Servers              [✗ MISSING]
+    Development Workstations A       [✗ MISSING]
+    Development Workstations B       [✓ EXISTS]
+    Enterprise Workstations  [✗ MISSING]
 ```
 
 ## Installation

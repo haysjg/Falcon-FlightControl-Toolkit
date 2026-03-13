@@ -13,11 +13,16 @@ ENV/
 config/credentials.json
 .env
 
-# Reports - Generated output
+# Reports - Generated output (may contain sensitive data)
 reports/
+test_reports/
 *.json
 *.txt
+*.xlsx
+*.csv
 !requirements.txt
+!package.json
+!package-lock.json
 
 # IDE
 .vscode/

@@ -248,7 +248,7 @@ Created only in validation mode:
 
 The script distinguishes custom roles from built-in roles by examining the role ID format:
 
-- **Custom roles:** ID is a 32-character hexadecimal UUID (e.g., `71078f5c73a44ae09be31c9116c81c20`)
+- **Custom roles:** ID is a 32-character hexadecimal UUID (e.g., `11111111111111111111111111111111`)
 - **Built-in roles:** ID is a text string (e.g., `falcon_administrator`, `sensor_manager`)
 
 ### Why Manual Replication?

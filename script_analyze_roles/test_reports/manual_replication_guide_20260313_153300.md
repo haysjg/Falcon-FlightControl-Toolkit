@@ -1,7 +1,7 @@
 # Custom Roles Manual Replication Guide
 
 **Generated:** 2026-03-13 15:33:00  
-**Parent CID:** `ac4a7606096941a4b63d8a9b226f49b2`  
+**Parent CID:** `a1b2c3d4e5f6789012345678901234ab`  
 
 ## Overview
 
@@ -18,7 +18,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 ### 1. mytest1
 
 **Description:** Copy of Roles for App Developer  
-**Role ID:** `71078f5c73a44ae09be31c9116c81c20`  
+**Role ID:** `11111111111111111111111111111111`  
 **Permissions Count:** 0  
 
 **✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
@@ -28,7 +28,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 ### 2. VMA-Custom-Host
 
 **Description:**   
-**Role ID:** `89cf004ef6f64a29956c0e64b11a1972`  
+**Role ID:** `22222222222222222222222222222222`  
 **Permissions Count:** 0  
 
 **✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
@@ -38,7 +38,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 ### 3. Custom JIT Authorizer
 
 **Description:** Temporary additional custom role for JIT Authorizer while OOTB permission can be added to Foundry custom roles  
-**Role ID:** `aa2452cef20f4c39a6cc78f492485848`  
+**Role ID:** `33333333333333333333333333333333`  
 **Permissions Count:** 0  
 
 **✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
@@ -48,7 +48,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 ### 4. Custom JIT Requester
 
 **Description:** Temporary additional custom role for JIT User & JIT Privileged User while OOTB permission can be added to Foundry custom roles  
-**Role ID:** `03455110e32b49caa701c3e4571519dd`  
+**Role ID:** `44444444444444444444444444444444`  
 **Permissions Count:** 0  
 
 **✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
@@ -58,7 +58,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 ### 5. RIL
 
 **Description:**   
-**Role ID:** `346cbb107a2d4833b22a5f69e1f14b4c`  
+**Role ID:** `55555555555555555555555555555555`  
 **Permissions Count:** 0  
 
 **✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
@@ -68,7 +68,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 ### 6. VMA-Custom-Role
 
 **Description:**   
-**Role ID:** `4ebf377b2bd9434b8c236a671e46b417`  
+**Role ID:** `66666666666666666666666666666666`  
 **Permissions Count:** 0  
 
 **✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  
@@ -78,7 +78,7 @@ This guide provides step-by-step instructions to manually replicate custom roles
 ### 7. mytest2
 
 **Description:** Copy of Copy of Roles for App Developer  
-**Role ID:** `6ef2c3e007894bf08ed4d68d937fd5de`  
+**Role ID:** `77777777777777777777777777777777`  
 **Permissions Count:** 0  
 
 **✗ Missing in:** Production Servers, Development Workstations A, Development Workstations B, Enterprise Workstations  

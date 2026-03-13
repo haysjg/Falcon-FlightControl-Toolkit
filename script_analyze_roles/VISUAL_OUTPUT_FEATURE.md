@@ -166,10 +166,10 @@ utils/formatting.py
 
   [1] mytest1
       Description: Copy of Roles for App Developer
-      ID: 71078f5c73a44ae09be31c9116c81c20
+      ID: 11111111111111111111111111111111
 
   [2] VMA-Custom-Host
-      ID: 89cf004ef6f64a29956c0e64b11a1972
+      ID: 22222222222222222222222222222222
 
 Selection options:
   • Enter role numbers separated by commas

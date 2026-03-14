@@ -406,6 +406,7 @@ class FirewallReplicator:
 
         # Merge policy info with container info
         excluded_count = 0
+        invalid_count = 0
         for policy in policies_response['body'].get('resources', []):
             policy_id = policy.get('id')
             policy_name = policy.get('name', '')
@@ -416,6 +417,17 @@ class FirewallReplicator:
                 excluded_count += 1
                 continue
 
+            # Validate policy data (filter out "ghost" policies)
+            if not policy_name or not policy_name.strip():
+                self.logger.warning(f"Skipping policy with empty name (ID: {policy_id})")
+                invalid_count += 1
+                continue
+
+            if not policy.get('platform_name'):
+                self.logger.warning(f"Skipping policy '{policy_name}' with missing platform (ID: {policy_id})")
+                invalid_count += 1
+                continue
+
             if policy_id:
                 # Start with policy data
                 merged = policy.copy()
@@ -423,8 +435,23 @@ class FirewallReplicator:
                 # Add container data (rule_group_ids, settings, etc.)
                 if policy_id in containers:
                     container = containers[policy_id]
+                    rule_group_ids = container.get('rule_group_ids', [])
+
+                    # Validate that referenced rule groups exist
+                    valid_rg_ids = []
+                    invalid_rg_ids = []
+                    for rg_id in rule_group_ids:
+                        if rg_id in self.rule_groups:
+                            valid_rg_ids.append(rg_id)
+                        else:
+                            invalid_rg_ids.append(rg_id)
+
+                    if invalid_rg_ids:
+                        self.logger.warning(f"Policy '{policy_name}' references {len(invalid_rg_ids)} non-existent rule group(s) - filtering them out")
+                        self.logger.debug(f"Invalid rule group IDs for '{policy_name}': {invalid_rg_ids}")
+
                     merged.update({
-                        'rule_group_ids': container.get('rule_group_ids', []),
+                        'rule_group_ids': valid_rg_ids,  # Only keep valid IDs
                         'default_inbound': container.get('default_inbound'),
                         'default_outbound': container.get('default_outbound'),
                         'enforce': container.get('enforce'),
@@ -437,6 +464,8 @@ class FirewallReplicator:
 
         if excluded_count > 0:
             print_info(f"    Excluded {excluded_count} default policy/policies (cannot be replicated)")
+        if invalid_count > 0:
+            print_warning(f"    Filtered out {invalid_count} invalid/ghost policy/policies")
         print_success(f"    Found {len(policies)} Policy Container(s) available for replication")
         return policies
 

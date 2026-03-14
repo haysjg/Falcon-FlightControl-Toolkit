@@ -1056,15 +1056,337 @@ class FirewallReplicator:
             print_error(f"Exception creating policy: {e}")
             return None
 
-    def replicate_to_child(self, child_cid: str, selected_policy_ids: List[str]):
+    def validate_replication(self, child_cid: str, replicated_data: Dict[str, List[str]]) -> Dict[str, Any]:
+        """Validate replicated resources match source configuration
+
+        Args:
+            child_cid: Child CID where resources were replicated
+            replicated_data: Dictionary with resource types and parent IDs that were replicated
+                           Format: {'policies': [id1, id2], 'rule_groups': [id1, id2], ...}
+
+        Returns:
+            Validation results dictionary with match/mismatch counts and details
+        """
+        child_name = self.cid_names.get(child_cid, child_cid[:12])
+
+        self.logger.info("=" * 80)
+        self.logger.info(f"Starting validation for Child CID: {child_name}")
+        self.logger.info("=" * 80)
+
+        validation_results = {
+            'policies': {'matches': 0, 'mismatches': 0, 'missing': 0, 'details': []},
+            'rule_groups': {'matches': 0, 'mismatches': 0, 'missing': 0, 'details': []},
+            'network_locations': {'matches': 0, 'mismatches': 0, 'missing': 0, 'details': []}
+        }
+
+        # Switch to Child CID for validation
+        print_section(f"Validating: {child_name}")
+        self.logger.info(f"Switching to Child CID for validation: {child_cid}")
+
+        # Save current auth
+        original_auth = self.auth
+        original_fw = self.falcon_fw
+        original_fp = self.falcon_fp
+
+        try:
+            # Create new auth for Child CID
+            child_auth = OAuth2(
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                base_url=self.base_url,
+                member_cid=child_cid
+            )
+            token_result = child_auth.token()
+            if token_result.get('status_code') != 201:
+                raise Exception(f"Failed to authenticate to Child CID: {token_result}")
+
+            child_fw = FirewallManagement(auth_object=child_auth)
+            child_fp = FirewallPolicies(auth_object=child_auth)
+
+            # Validate Network Locations
+            if replicated_data.get('network_locations'):
+                loc_count = len(replicated_data['network_locations'])
+                print_info(f"  Validating {loc_count} Network Location(s)...")
+                self.logger.info(f"Validating {loc_count} Network Locations")
+
+                for parent_loc_id in replicated_data['network_locations']:
+                    parent_loc = self.network_locations.get(parent_loc_id)
+                    if not parent_loc:
+                        continue
+
+                    loc_name = parent_loc.get('name')
+
+                    # Query child for this location by name
+                    child_locs_response = child_fw.query_network_locations()
+                    if child_locs_response['status_code'] != 200:
+                        self.logger.error(f"Failed to query Child Network Locations: {child_locs_response['body']}")
+                        continue
+
+                    child_loc_ids = child_locs_response['body'].get('resources', [])
+                    if not child_loc_ids:
+                        validation_results['network_locations']['missing'] += 1
+                        validation_results['network_locations']['details'].append({
+                            'name': loc_name,
+                            'status': 'MISSING',
+                            'issue': 'No Network Locations found in Child CID'
+                        })
+                        continue
+
+                    child_locs_details = child_fw.get_network_locations(ids=child_loc_ids)
+
+                    child_loc = None
+                    if child_locs_details['status_code'] == 200:
+                        for loc in child_locs_details['body'].get('resources', []):
+                            if loc.get('name') == loc_name:
+                                child_loc = loc
+                                break
+
+                    if not child_loc:
+                        validation_results['network_locations']['missing'] += 1
+                        validation_results['network_locations']['details'].append({
+                            'name': loc_name,
+                            'status': 'MISSING',
+                            'issue': 'Not found in Child CID'
+                        })
+                        self.logger.error(f"✗ Network Location MISSING: {loc_name}")
+                        continue
+
+                    # Compare key fields
+                    mismatches = []
+                    if parent_loc.get('enabled') != child_loc.get('enabled'):
+                        mismatches.append(f"enabled: Parent={parent_loc.get('enabled')} vs Child={child_loc.get('enabled')}")
+
+                    if mismatches:
+                        validation_results['network_locations']['mismatches'] += 1
+                        validation_results['network_locations']['details'].append({
+                            'name': loc_name,
+                            'status': 'MISMATCH',
+                            'issues': mismatches
+                        })
+                        self.logger.warning(f"⚠ Network Location MISMATCH: {loc_name} - {', '.join(mismatches)}")
+                    else:
+                        validation_results['network_locations']['matches'] += 1
+                        self.logger.debug(f"✓ Network Location MATCH: {loc_name}")
+
+            # Validate Rule Groups
+            if replicated_data.get('rule_groups'):
+                rg_count = len(replicated_data['rule_groups'])
+                print_info(f"  Validating {rg_count} Rule Group(s)...")
+                self.logger.info(f"Validating {rg_count} Rule Groups")
+
+                for parent_rg_id in replicated_data['rule_groups']:
+                    parent_rg = self.rule_groups.get(parent_rg_id)
+                    if not parent_rg:
+                        continue
+
+                    rg_name = parent_rg.get('name')
+
+                    # Query child for this rule group
+                    child_rgs_response = child_fw.query_rule_groups()
+                    if child_rgs_response['status_code'] != 200:
+                        self.logger.error(f"Failed to query Child Rule Groups: {child_rgs_response['body']}")
+                        continue
+
+                    child_rg_ids = child_rgs_response['body'].get('resources', [])
+                    if not child_rg_ids:
+                        validation_results['rule_groups']['missing'] += 1
+                        validation_results['rule_groups']['details'].append({
+                            'name': rg_name,
+                            'status': 'MISSING',
+                            'issue': 'No Rule Groups found in Child CID'
+                        })
+                        continue
+
+                    child_rgs_details = child_fw.get_rule_groups(ids=child_rg_ids)
+
+                    child_rg = None
+                    if child_rgs_details['status_code'] == 200:
+                        for rg in child_rgs_details['body'].get('resources', []):
+                            if rg.get('name') == rg_name:
+                                child_rg = rg
+                                break
+
+                    if not child_rg:
+                        validation_results['rule_groups']['missing'] += 1
+                        validation_results['rule_groups']['details'].append({
+                            'name': rg_name,
+                            'status': 'MISSING',
+                            'issue': 'Not found in Child CID'
+                        })
+                        self.logger.error(f"✗ Rule Group MISSING: {rg_name}")
+                        continue
+
+                    # Compare key fields
+                    mismatches = []
+                    if parent_rg.get('enabled') != child_rg.get('enabled'):
+                        mismatches.append(f"enabled: Parent={parent_rg.get('enabled')} vs Child={child_rg.get('enabled')}")
+
+                    parent_rules = parent_rg.get('rules', [])
+                    child_rules = child_rg.get('rules', [])
+                    if len(parent_rules) != len(child_rules):
+                        mismatches.append(f"rule count: Parent={len(parent_rules)} vs Child={len(child_rules)}")
+                    elif len(parent_rules) > 0:
+                        # Check rule precedence order
+                        parent_precedences = sorted([r.get('precedence') for r in parent_rules if r.get('precedence') is not None])
+                        child_precedences = sorted([r.get('precedence') for r in child_rules if r.get('precedence') is not None])
+                        if parent_precedences != child_precedences:
+                            mismatches.append(f"rule precedence mismatch: Parent={parent_precedences[:3]}... vs Child={child_precedences[:3]}...")
+
+                    if mismatches:
+                        validation_results['rule_groups']['mismatches'] += 1
+                        validation_results['rule_groups']['details'].append({
+                            'name': rg_name,
+                            'status': 'MISMATCH',
+                            'issues': mismatches
+                        })
+                        self.logger.warning(f"⚠ Rule Group MISMATCH: {rg_name} - {', '.join(mismatches)}")
+                    else:
+                        validation_results['rule_groups']['matches'] += 1
+                        self.logger.debug(f"✓ Rule Group MATCH: {rg_name}")
+
+            # Validate Policies
+            if replicated_data.get('policies'):
+                policy_count = len(replicated_data['policies'])
+                print_info(f"  Validating {policy_count} Polic(ies)...")
+                self.logger.info(f"Validating {policy_count} Policies")
+
+                for parent_policy_id in replicated_data['policies']:
+                    parent_policy = self.policy_containers.get(parent_policy_id)
+                    if not parent_policy:
+                        continue
+
+                    policy_name = parent_policy.get('name')
+
+                    # Query child for this policy
+                    child_policies_response = child_fp.query_policies()
+                    if child_policies_response['status_code'] != 200:
+                        self.logger.error(f"Failed to query Child Policies: {child_policies_response['body']}")
+                        continue
+
+                    child_policy_ids = child_policies_response['body'].get('resources', [])
+                    if not child_policy_ids:
+                        validation_results['policies']['missing'] += 1
+                        validation_results['policies']['details'].append({
+                            'name': policy_name,
+                            'status': 'MISSING',
+                            'issue': 'No Policies found in Child CID'
+                        })
+                        continue
+
+                    child_policies_details = child_fp.get_policies(ids=child_policy_ids)
+
+                    child_policy = None
+                    if child_policies_details['status_code'] == 200:
+                        for policy in child_policies_details['body'].get('resources', []):
+                            if policy.get('name') == policy_name:
+                                child_policy = policy
+                                break
+
+                    if not child_policy:
+                        validation_results['policies']['missing'] += 1
+                        validation_results['policies']['details'].append({
+                            'name': policy_name,
+                            'status': 'MISSING',
+                            'issue': 'Not found in Child CID'
+                        })
+                        self.logger.error(f"✗ Policy MISSING: {policy_name}")
+                        continue
+
+                    # Compare key fields
+                    mismatches = []
+                    if parent_policy.get('enabled') != child_policy.get('enabled'):
+                        mismatches.append(f"enabled: Parent={parent_policy.get('enabled')} vs Child={child_policy.get('enabled')}")
+
+                    parent_rg_count = len(parent_policy.get('rule_group_ids', []))
+                    child_rg_count = len(child_policy.get('rule_group_ids', []))
+                    if parent_rg_count != child_rg_count:
+                        mismatches.append(f"rule group count: Parent={parent_rg_count} vs Child={child_rg_count}")
+
+                    if mismatches:
+                        validation_results['policies']['mismatches'] += 1
+                        validation_results['policies']['details'].append({
+                            'name': policy_name,
+                            'status': 'MISMATCH',
+                            'issues': mismatches
+                        })
+                        self.logger.warning(f"⚠ Policy MISMATCH: {policy_name} - {', '.join(mismatches)}")
+                    else:
+                        validation_results['policies']['matches'] += 1
+                        self.logger.debug(f"✓ Policy MATCH: {policy_name}")
+
+        except Exception as e:
+            self.logger.exception("Exception during validation")
+            print_error(f"Validation error: {e}")
+        finally:
+            # Restore original auth
+            self.auth = original_auth
+            self.falcon_fw = original_fw
+            self.falcon_fp = original_fp
+
+        # Print summary
+        print()
+        print_section("Validation Summary")
+
+        total_matches = sum(v['matches'] for v in validation_results.values())
+        total_mismatches = sum(v['mismatches'] for v in validation_results.values())
+        total_missing = sum(v['missing'] for v in validation_results.values())
+        total_validated = total_matches + total_mismatches + total_missing
+
+        if total_validated == 0:
+            print_warning("⚠ No resources were validated")
+            self.logger.warning("Validation completed with no resources validated")
+        else:
+            match_percentage = (total_matches / total_validated * 100) if total_validated > 0 else 0
+
+            print_info(f"  Total Validated: {total_validated}")
+            print_success(f"  ✓ Matches: {total_matches} ({match_percentage:.1f}%)")
+            if total_mismatches > 0:
+                print_warning(f"  ⚠ Mismatches: {total_mismatches}")
+            if total_missing > 0:
+                print_error(f"  ✗ Missing: {total_missing}")
+
+            self.logger.info("=" * 80)
+            self.logger.info(f"Validation Summary: {total_matches} matches, {total_mismatches} mismatches, {total_missing} missing")
+            self.logger.info("=" * 80)
+
+            # Show detailed issues if any
+            if total_mismatches > 0 or total_missing > 0:
+                print()
+                print_section("Validation Issues")
+
+                for resource_type, results in validation_results.items():
+                    for detail in results['details']:
+                        if detail['status'] != 'MATCH':
+                            status_symbol = "✗" if detail['status'] == 'MISSING' else "⚠"
+                            print_warning(f"  {status_symbol} {resource_type.replace('_', ' ').title()}: {detail['name']} - {detail['status']}")
+                            if 'issues' in detail:
+                                for issue in detail['issues']:
+                                    print_info(f"      • {issue}")
+                            elif 'issue' in detail:
+                                print_info(f"      • {detail['issue']}")
+
+        print()
+        return validation_results
+
+    def replicate_to_child(self, child_cid: str, selected_policy_ids: List[str]) -> Dict[str, List[str]]:
         """Replicate selected policies and their dependencies to a Child CID
 
         Args:
             child_cid: Target Child CID
             selected_policy_ids: List of policy IDs to replicate
+
+        Returns:
+            Dictionary with parent IDs of replicated resources for validation
         """
         child_name = self.cid_names.get(child_cid, child_cid[:12])
         print_section(f"Replicating to: {child_name}")
+
+        # Track replicated resources for validation (using parent IDs)
+        replicated_data = {
+            'network_locations': [],
+            'rule_groups': [],
+            'policies': []
+        }
 
         # Reset skip_all flag for this Child CID
         self.skip_all_duplicates = False
@@ -1097,8 +1419,13 @@ class FirewallReplicator:
             skipped_count = 0
             for loc_id, loc_data in self.network_locations.items():
                 new_id = self.replicate_network_location(loc_data, child_cid, skip_duplicates=self.skip_all_duplicates)
-                if new_id:
+                if new_id and new_id != "dry-run-id":  # Only track real IDs
                     location_id_map[loc_id] = new_id
+                    replicated_data['network_locations'].append(loc_id)  # Track parent ID
+                    success_count += 1
+                elif new_id == "dry-run-id":
+                    # In dry-run mode, still track it
+                    replicated_data['network_locations'].append(loc_id)
                     success_count += 1
                 else:
                     skipped_count += 1
@@ -1118,8 +1445,12 @@ class FirewallReplicator:
                 rg_data = self.rule_groups.get(rg_id)
                 if rg_data:
                     new_id = self.replicate_rule_group(rg_data, child_cid, location_id_map, skip_duplicates=self.skip_all_duplicates)
-                    if new_id:
+                    if new_id and new_id != "dry-run-id":
                         rule_group_id_map[rg_id] = new_id
+                        replicated_data['rule_groups'].append(rg_id)  # Track parent ID
+                        success_count += 1
+                    elif new_id == "dry-run-id":
+                        replicated_data['rule_groups'].append(rg_id)
                         success_count += 1
                     else:
                         skipped_count += 1
@@ -1137,7 +1468,11 @@ class FirewallReplicator:
             policy_data = self.policy_containers.get(policy_id)
             if policy_data:
                 new_id = self.replicate_policy(policy_data, child_cid, rule_group_id_map, skip_duplicates=self.skip_all_duplicates)
-                if new_id:
+                if new_id and new_id != "dry-run-id":
+                    replicated_data['policies'].append(policy_id)  # Track parent ID
+                    success_count += 1
+                elif new_id == "dry-run-id":
+                    replicated_data['policies'].append(policy_id)
                     success_count += 1
                 else:
                     skipped_count += 1
@@ -1146,6 +1481,9 @@ class FirewallReplicator:
         if skipped_count > 0:
             print_info(f"  (Skipped {skipped_count} - already exist)")
         print()
+
+        # Return replicated data for validation
+        return replicated_data
 
         print_success(f"✓ Replication to {child_name} complete!")
         print()
@@ -1181,6 +1519,8 @@ Examples:
                        help='Non-interactive mode (replicate all policies to all children)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Preview changes without executing them (dry run mode)')
+    parser.add_argument('--no-validate', action='store_true',
+                       help='Skip post-replication validation')
     parser.add_argument('--log-file', type=str,
                        help='Path to log file (default: auto-generated in logs/)')
 
@@ -1322,20 +1662,44 @@ Examples:
 
     for child_cid in selected_children:
         try:
-            replicator.replicate_to_child(child_cid, selected_policies)
+            # Replicate to child and get data for validation
+            replicated_data = replicator.replicate_to_child(child_cid, selected_policies)
+
+            # Validate unless disabled or dry-run mode
+            if not args.no_validate and not args.dry_run and replicated_data:
+                try:
+                    replicator.validate_replication(child_cid, replicated_data)
+                except Exception as e:
+                    child_name = replicator.cid_names.get(child_cid, child_cid[:12])
+                    print_error(f"Validation failed for {child_name}: {e}")
+                    replicator.logger.exception(f"Validation exception for {child_name}")
+            elif args.dry_run:
+                print_info("Skipping validation (dry-run mode)")
+            elif args.no_validate:
+                print_info("Skipping validation (--no-validate flag)")
+
         except Exception as e:
             child_name = replicator.cid_names.get(child_cid, child_cid[:12])
             print_error(f"Failed to replicate to {child_name}: {e}")
+            replicator.logger.exception(f"Replication exception for {child_name}")
             continue
 
     print()
     print_section("REPLICATION COMPLETE")
     print_success("✓ Firewall configurations have been replicated!")
     print()
-    print_info("Next steps:")
-    print_info("  1. Verify policies in Child CID Falcon Console")
-    print_info("  2. Test firewall rules")
-    print_info("  3. Enable policies when ready")
+
+    if not args.no_validate and not args.dry_run:
+        print_info("Next steps:")
+        print_info("  1. Review validation results above")
+        print_info("  2. Verify policies in Child CID Falcon Console")
+        print_info("  3. Test firewall rules")
+        print_info("  4. Enable policies when ready")
+    else:
+        print_info("Next steps:")
+        print_info("  1. Verify policies in Child CID Falcon Console")
+        print_info("  2. Test firewall rules")
+        print_info("  3. Enable policies when ready")
 
 
 if __name__ == "__main__":

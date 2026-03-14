@@ -675,19 +675,59 @@ class FirewallReplicator:
         Returns:
             Created rule group ID or None if skipped/failed
         """
-        # Remove fields that shouldn't be in creation request
+        # Extract rules from the source group data
+        source_rules = group_data.get('rules', [])
+
+        # Prepare rules with precedence preserved
+        rules_to_create = []
+        if source_rules:
+            # Sort rules by precedence to ensure correct order
+            sorted_rules = sorted(source_rules, key=lambda r: r.get('precedence', 999999))
+
+            for rule in sorted_rules:
+                # Build rule configuration
+                rule_config = {
+                    'name': rule.get('name'),
+                    'description': rule.get('description', ''),
+                    'enabled': rule.get('enabled', True),
+                    'precedence': rule.get('precedence'),  # CRITICAL: Preserve precedence
+                    'action': rule.get('action'),
+                    'direction': rule.get('direction'),
+                    'protocol': rule.get('protocol'),
+                    'address_family': rule.get('address_family', 'IP4'),
+                    'log': rule.get('log', False),
+                }
+
+                # Add optional fields if present
+                if 'local_address' in rule:
+                    rule_config['local_address'] = rule['local_address']
+                if 'local_port' in rule:
+                    rule_config['local_port'] = rule['local_port']
+                if 'remote_address' in rule:
+                    rule_config['remote_address'] = rule['remote_address']
+                if 'remote_port' in rule:
+                    rule_config['remote_port'] = rule['remote_port']
+                if 'icmp' in rule:
+                    rule_config['icmp'] = rule['icmp']
+                if 'monitor' in rule:
+                    rule_config['monitor'] = rule['monitor']
+                if 'fields' in rule:
+                    rule_config['fields'] = rule['fields']
+                if 'temp_id' in rule:
+                    rule_config['temp_id'] = rule['temp_id']
+
+                rules_to_create.append(rule_config)
+
+        # Build rule group configuration
         group_config = {
             'name': group_data.get('name'),
             'description': group_data.get('description', ''),
             'enabled': group_data.get('enabled', True),
             'platform': group_data.get('platform'),
-            'rules': []  # Will be added if present
+            'rules': rules_to_create  # Include all rules with precedence
         }
 
         original_name = group_config.get('name')
-
-        # TODO: Handle rules within the group if present
-        # For now, create empty groups like the test generator
 
         try:
             response = self.falcon_fw.create_rule_group(body=group_config)

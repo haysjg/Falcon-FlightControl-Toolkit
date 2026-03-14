@@ -201,11 +201,12 @@ class FirewallTestDataGenerator:
         self.created_locations = created_ids
         return created_ids
 
-    def generate_rule(self, index: int) -> Dict[str, Any]:
+    def generate_rule(self, index: int, precedence: int = None) -> Dict[str, Any]:
         """Generate a firewall rule configuration
 
         Args:
             index: Index number for unique naming
+            precedence: Rule precedence (priority order). If None, uses index as precedence.
 
         Returns:
             Rule configuration dict
@@ -235,6 +236,7 @@ class FirewallTestDataGenerator:
             "name": name,
             "description": f"Test rule {index}: {action} {service} traffic",
             "enabled": True,
+            "precedence": precedence if precedence is not None else index,  # CRITICAL: Set precedence
             "action": action,
             "direction": direction,
             "protocol": str(protocol),
@@ -285,8 +287,12 @@ class FirewallTestDataGenerator:
         # Platform labels: windows, mac, linux (lowercase)
         platform_label = random.choice(["windows", "mac", "linux"])
 
-        # Generate rules for this group
-        rules = [self.generate_rule(i + (index * 100)) for i in range(num_rules)]
+        # Generate rules for this group with sequential precedence
+        rules = []
+        for i in range(num_rules):
+            rule_index = i + (index * 100)
+            precedence = (index * 100) + i  # Sequential precedence within group
+            rules.append(self.generate_rule(rule_index, precedence=precedence))
 
         config = {
             "name": name,

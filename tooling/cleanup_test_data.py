@@ -299,7 +299,7 @@ class TestDataCleanup:
         return test_policies
 
     def delete_policies(self, policies: List[Dict[str, Any]]) -> int:
-        """Delete policies from their respective CIDs
+        """Delete policies from their respective CIDs (optimized batch deletion)
 
         Args:
             policies: List of policy dictionaries to delete (with _cid tag)
@@ -312,14 +312,22 @@ class TestDataCleanup:
 
         print_info(f"Deleting {len(policies)} Policies...")
         success_count = 0
+        total = len(policies)
 
+        # Group policies by CID for efficient batch deletion
+        policies_by_cid = {}
         for policy in policies:
-            policy_id = policy.get('id')
-            policy_name = policy.get('name')
             cid = policy.get('_cid')
+            if cid not in policies_by_cid:
+                policies_by_cid[cid] = []
+            policies_by_cid[cid].append(policy)
+
+        # Process each CID
+        processed = 0
+        for cid, cid_policies in policies_by_cid.items():
             cid_name = self.cid_names.get(cid, cid[:12])
 
-            # Create auth for this CID
+            # Create auth once per CID
             cid_auth = OAuth2(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -329,18 +337,35 @@ class TestDataCleanup:
             cid_auth.token()
             cid_fp = FirewallPolicies(auth_object=cid_auth)
 
-            response = cid_fp.delete_policies(ids=policy_id)
+            # Delete in batches of 100 (API limit)
+            batch_size = 100
+            for i in range(0, len(cid_policies), batch_size):
+                batch = cid_policies[i:i + batch_size]
+                batch_ids = [p.get('id') for p in batch]
 
-            if response['status_code'] in [200, 201]:
-                print_success(f"  ✓ Deleted from {cid_name}: {policy_name}")
-                success_count += 1
-            else:
-                print_error(f"  ✗ Failed to delete {policy_name} from {cid_name}: {response['body'].get('errors')}")
+                # Show progress
+                progress_pct = (processed / total) * 100
+                print(f"\r  Progress: {processed}/{total} ({progress_pct:.0f}%) - {cid_name[:30]:<30}", end='', flush=True)
 
+                response = cid_fp.delete_policies(ids=batch_ids)
+
+                if response['status_code'] in [200, 201]:
+                    success_count += len(batch_ids)
+                    processed += len(batch_ids)
+                else:
+                    # If batch fails, try individual deletions
+                    for policy in batch:
+                        single_response = cid_fp.delete_policies(ids=policy.get('id'))
+                        if single_response['status_code'] in [200, 201]:
+                            success_count += 1
+                        processed += 1
+
+        print()  # New line after progress
+        print_success(f"✓ Deleted {success_count} Policies")
         return success_count
 
     def delete_rule_groups(self, rule_groups: List[Dict[str, Any]]) -> int:
-        """Delete rule groups from their respective CIDs
+        """Delete rule groups from their respective CIDs (optimized batch deletion)
 
         Args:
             rule_groups: List of rule group dictionaries to delete (with _cid tag)
@@ -353,14 +378,22 @@ class TestDataCleanup:
 
         print_info(f"Deleting {len(rule_groups)} Rule Groups...")
         success_count = 0
+        total = len(rule_groups)
 
+        # Group rule groups by CID for efficient batch deletion
+        rgs_by_cid = {}
         for rg in rule_groups:
-            rg_id = rg.get('id')
-            rg_name = rg.get('name')
             cid = rg.get('_cid')
+            if cid not in rgs_by_cid:
+                rgs_by_cid[cid] = []
+            rgs_by_cid[cid].append(rg)
+
+        # Process each CID
+        processed = 0
+        for cid, cid_rgs in rgs_by_cid.items():
             cid_name = self.cid_names.get(cid, cid[:12])
 
-            # Create auth for this CID
+            # Create auth once per CID
             cid_auth = OAuth2(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -370,18 +403,37 @@ class TestDataCleanup:
             cid_auth.token()
             cid_fw = FirewallManagement(auth_object=cid_auth)
 
-            response = cid_fw.delete_rule_groups(ids=rg_id)
+            # Delete in batches of 100 (API limit)
+            batch_size = 100
+            for i in range(0, len(cid_rgs), batch_size):
+                batch = cid_rgs[i:i + batch_size]
+                batch_ids = [rg.get('id') for rg in batch]
 
-            if response['status_code'] in [200, 201]:
-                print_success(f"  ✓ Deleted from {cid_name}: {rg_name}")
-                success_count += 1
-            else:
-                print_error(f"  ✗ Failed to delete {rg_name} from {cid_name}: {response['body'].get('errors')}")
+                # Show progress
+                progress_pct = (processed / total) * 100
+                print(f"\r  Progress: {processed}/{total} ({progress_pct:.0f}%) - {cid_name[:30]:<30}", end='', flush=True)
+
+                response = cid_fw.delete_rule_groups(ids=batch_ids)
+
+                if response['status_code'] in [200, 201]:
+                    success_count += len(batch_ids)
+                    processed += len(batch_ids)
+                else:
+                    # If batch fails, try individual deletions
+                    for rg in batch:
+                        single_response = cid_fw.delete_rule_groups(ids=rg.get('id'))
+                        if single_response['status_code'] in [200, 201]:
+                            success_count += 1
+                        processed += 1
+
+        print()  # New line after progress
+        print_success(f"✓ Deleted {success_count} Rule Groups")
+        return success_count
 
         return success_count
 
     def delete_network_locations(self, locations: List[Dict[str, Any]]) -> int:
-        """Delete network locations from their respective CIDs
+        """Delete network locations from their respective CIDs (optimized batch deletion)
 
         Args:
             locations: List of location dictionaries to delete (with _cid tag)
@@ -394,14 +446,22 @@ class TestDataCleanup:
 
         print_info(f"Deleting {len(locations)} Network Locations...")
         success_count = 0
+        total = len(locations)
 
+        # Group locations by CID for efficient batch deletion
+        locs_by_cid = {}
         for loc in locations:
-            loc_id = loc.get('id')
-            loc_name = loc.get('name')
             cid = loc.get('_cid')
+            if cid not in locs_by_cid:
+                locs_by_cid[cid] = []
+            locs_by_cid[cid].append(loc)
+
+        # Process each CID
+        processed = 0
+        for cid, cid_locs in locs_by_cid.items():
             cid_name = self.cid_names.get(cid, cid[:12])
 
-            # Create auth for this CID
+            # Create auth once per CID
             cid_auth = OAuth2(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -411,14 +471,31 @@ class TestDataCleanup:
             cid_auth.token()
             cid_fw = FirewallManagement(auth_object=cid_auth)
 
-            response = cid_fw.delete_network_locations(ids=loc_id)
+            # Delete in batches of 100 (API limit)
+            batch_size = 100
+            for i in range(0, len(cid_locs), batch_size):
+                batch = cid_locs[i:i + batch_size]
+                batch_ids = [loc.get('id') for loc in batch]
 
-            if response['status_code'] in [200, 201]:
-                print_success(f"  ✓ Deleted from {cid_name}: {loc_name}")
-                success_count += 1
-            else:
-                print_error(f"  ✗ Failed to delete {loc_name} from {cid_name}: {response['body'].get('errors')}")
+                # Show progress
+                progress_pct = (processed / total) * 100
+                print(f"\r  Progress: {processed}/{total} ({progress_pct:.0f}%) - {cid_name[:30]:<30}", end='', flush=True)
 
+                response = cid_fw.delete_network_locations(ids=batch_ids)
+
+                if response['status_code'] in [200, 201]:
+                    success_count += len(batch_ids)
+                    processed += len(batch_ids)
+                else:
+                    # If batch fails, try individual deletions
+                    for loc in batch:
+                        single_response = cid_fw.delete_network_locations(ids=loc.get('id'))
+                        if single_response['status_code'] in [200, 201]:
+                            success_count += 1
+                        processed += 1
+
+        print()  # New line after progress
+        print_success(f"✓ Deleted {success_count} Network Locations")
         return success_count
 
 

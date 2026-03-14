@@ -384,17 +384,16 @@ def print_credentials_source(source: str):
 def print_jg_logo():
     """Print the JG logo in green and yellow."""
     logo_lines = [
-        "       ████╗    ██████╗",
-        "       ████║   ██╔════╝",
-        "       ████║   ██║  ███╗",
-        "  ██╗  ████║   ██║   ██║",
-        "  ╚███████╔╝   ╚██████╔╝",
-        "   ╚══════╝     ╚═════╝"
+        "     ██╗   ██████╗",
+        "     ██║  ██╔════╝",
+        " ██╗ ██║  ██║  ███╗",
+        " ╚████╔╝  ╚██████╔╝",
+        "  ╚═══╝    ╚═════╝"
     ]
 
     print()
     for line in logo_lines:
-        j_part = line[:19]
-        g_part = line[19:]
+        j_part = line[:11]
+        g_part = line[11:]
         print(Fore.GREEN + j_part + Fore.YELLOW + g_part + Style.RESET_ALL)
     print()

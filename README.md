@@ -24,6 +24,22 @@ Python automation toolkit for CrowdStrike Falcon FlightControl environments usin
 
 This toolkit provides enterprise-grade scripts to automate configuration management and replication across Parent and Child CIDs in CrowdStrike Falcon FlightControl environments. All scripts feature interactive modes, visual progress indicators, and comprehensive error handling.
 
+## 🚀 Quick Start with Launcher
+
+The easiest way to use this toolkit is through the **centralized launcher menu**:
+
+```bash
+python launcher.py
+```
+
+The launcher provides:
+- **📋 Categorized Menu** - All scripts organized by function (Replication, Analysis, Export, Testing, Utility)
+- **🔄 Automatic Return** - Returns to menu after each script execution
+- **⌨️ Simple Navigation** - Just select a number to launch any script
+- **🎨 Visual Interface** - Clean, branded interface with JG logo
+
+**No need to remember individual script paths or commands** - just run the launcher and select what you need!
+
 ## Available Scripts
 
 ### 1. [Custom Roles Analyzer](script_analyze_roles/)
@@ -115,6 +131,9 @@ pip install -r requirements.txt
 # Configure credentials
 cp config/credentials.json.example config/credentials.json
 # Edit config/credentials.json with your API credentials
+
+# Launch the menu
+python launcher.py
 ```
 
 **[→ Detailed Installation Guide](INSTALLATION.md)**
@@ -175,6 +194,7 @@ All scripts in this repository share:
 
 ```
 Falcon-FlightControl-Toolkit/
+├── launcher.py                   # 🚀 Main menu launcher (START HERE)
 ├── script_analyze_roles/         # Custom roles analyzer
 │   ├── analyze_roles.py          # Main script
 │   ├── README.md                 # Detailed documentation
@@ -209,20 +229,38 @@ Falcon-FlightControl-Toolkit/
 
 ## Usage Examples
 
-### Analyze Custom Roles (Interactive)
+### Using the Launcher (Recommended)
+```bash
+# Start the interactive menu
+python launcher.py
+
+# Select a script by number:
+# [1] Firewall Management Replication
+# [2] Custom IOAs Replication
+# [3] Analyze Custom Roles
+# [4] Export Devices & Policies
+# [5] Generate Firewall Test Data
+# [6] Cleanup Firewall Test Data
+# [7] Check Current Firewall Data
+# [q] Quit
+```
+
+### Running Scripts Directly
+
+#### Analyze Custom Roles (Interactive)
 ```bash
 python script_analyze_roles/analyze_roles.py --config config/credentials.json
 # Select roles and child CIDs when prompted
 ```
 
-### Export All Devices (All CIDs)
+#### Export All Devices (All CIDs)
 ```bash
 python script_export_devices_policies/export_devices_policies.py \
   --config config/credentials.json \
   --non-interactive
 ```
 
-### Use Environment Variables
+#### Use Environment Variables
 ```powershell
 $env:FALCON_CLIENT_ID = "abc123..."
 $env:FALCON_CLIENT_SECRET = "xyz789..."

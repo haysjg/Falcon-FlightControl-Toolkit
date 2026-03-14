@@ -404,8 +404,17 @@ class FirewallReplicator:
                     containers[container_id] = container
 
         # Merge policy info with container info
+        excluded_count = 0
         for policy in policies_response['body'].get('resources', []):
             policy_id = policy.get('id')
+            policy_name = policy.get('name', '')
+
+            # Skip platform default policies
+            if policy_name.lower() in ['default', 'platform_default'] or policy.get('is_default_policy', False):
+                self.logger.debug(f"Skipping default policy: {policy_name}")
+                excluded_count += 1
+                continue
+
             if policy_id:
                 # Start with policy data
                 merged = policy.copy()
@@ -425,7 +434,9 @@ class FirewallReplicator:
 
                 policies[policy_id] = merged
 
-        print_success(f"    Found {len(policies)} Policy Container(s)")
+        if excluded_count > 0:
+            print_info(f"    Excluded {excluded_count} default policy/policies (cannot be replicated)")
+        print_success(f"    Found {len(policies)} Policy Container(s) available for replication")
         return policies
 
     def extract_all_from_parent(self):

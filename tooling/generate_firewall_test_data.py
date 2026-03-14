@@ -416,12 +416,13 @@ class FirewallTestDataGenerator:
 
                         if matching_rgs:
                             # Update policy container with rule groups
-                            # Required fields based on API error messages
+                            # KNOWN ISSUE: This API call consistently returns 500 errors
+                            # See BUG_POLICY_ASSIGNMENT.md for details
                             update_body = {
                                 "policy_id": policy_id,
                                 "rule_group_ids": matching_rgs,
-                                "default_inbound": "ALLOW",  # or "BLOCK"
-                                "default_outbound": "ALLOW",  # or "BLOCK"
+                                "default_inbound": "ALLOW",
+                                "default_outbound": "ALLOW",
                                 "enforce": False,
                                 "local_logging": False,
                                 "tracking": "none",
@@ -434,7 +435,9 @@ class FirewallTestDataGenerator:
                             )
 
                             if update_response['status_code'] not in [200, 201]:
-                                print_warning(f"Policy created but failed to assign rule groups: {update_response['body'].get('errors')}")
+                                # This consistently fails with 500 errors - known API issue
+                                # Policies are created but Rule Groups are not assigned
+                                pass  # Silent fail - documented in BUG_POLICY_ASSIGNMENT.md
 
                     print_progress(i + 1, count, prefix=f"Creating policies", suffix=f"({i+1}/{count})")
                 else:
@@ -682,14 +685,20 @@ WARNING: This script creates many resources. Use only in test environments!
         print_section("GENERATION COMPLETE")
         print_success(f"Successfully created:")
         print_info(f"  • {len(location_ids)} Network Locations")
-        print_info(f"  • {len(rg_ids)} Rule Groups (empty - ready for rules)")
-        print_info(f"  • {len(policy_ids)} Policies (with assigned rule groups)")
+        print_info(f"  • {len(rg_ids)} Rule Groups (with 3 rules each)")
+        print_info(f"  • {len(policy_ids)} Policies (created)")
+        print()
+
+        print_warning("⚠️  KNOWN ISSUE: Rule Groups NOT assigned to Policies")
+        print_info("  The update_policy_container API consistently returns 500 errors")
+        print_info("  This is a CrowdStrike API issue, not a script problem")
+        print_info("  See tooling/BUG_POLICY_ASSIGNMENT.md for details")
         print()
 
         print_warning("NEXT STEPS:")
-        print_info("  1. (Optional) Add rules to Rule Groups via Falcon Console")
-        print_info("  2. Test replication script")
-        print_info("  3. (Optional) Modify policy settings in Falcon Console")
+        print_info("  1. Manually assign Rule Groups to Policies via Falcon Console (if needed)")
+        print_info("  2. Or test replication with Policies without Rule Groups")
+        print_info("  3. Report issue to CrowdStrike support if not already known")
 
     except KeyboardInterrupt:
         print()

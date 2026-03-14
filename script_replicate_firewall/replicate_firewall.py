@@ -1133,6 +1133,51 @@ class FirewallReplicator:
             child_fw = FirewallManagement(auth_object=child_auth)
             child_fp = FirewallPolicies(auth_object=child_auth)
 
+            # OPTIMIZATION: Fetch all Child resources once upfront instead of per-item
+            # This dramatically reduces API calls from O(n) to O(1) per resource type
+
+            # Fetch all Network Locations from Child CID once
+            child_all_locs = {}
+            child_locs_response = child_fw.query_network_locations()
+            if child_locs_response['status_code'] == 200:
+                child_loc_ids = child_locs_response['body'].get('resources', [])
+                if child_loc_ids:
+                    child_locs_details = child_fw.get_network_locations(ids=child_loc_ids)
+                    if child_locs_details['status_code'] == 200:
+                        for loc in child_locs_details['body'].get('resources', []):
+                            child_all_locs[loc.get('name')] = loc
+
+            # Fetch all Rule Groups from Child CID once
+            child_all_rgs = {}
+            child_rgs_response = child_fw.query_rule_groups()
+            if child_rgs_response['status_code'] == 200:
+                child_rg_ids = child_rgs_response['body'].get('resources', [])
+                if child_rg_ids:
+                    child_rgs_details = child_fw.get_rule_groups(ids=child_rg_ids)
+                    if child_rgs_details['status_code'] == 200:
+                        for rg in child_rgs_details['body'].get('resources', []):
+                            child_all_rgs[rg.get('name')] = rg
+
+            # Fetch all Policies from Child CID once
+            child_all_policies = {}
+            child_policies_response = child_fp.query_policies()
+            if child_policies_response['status_code'] == 200:
+                child_policy_ids = child_policies_response['body'].get('resources', [])
+                if child_policy_ids:
+                    # Get policy details
+                    child_policies_details = child_fp.get_policies(ids=child_policy_ids)
+                    if child_policies_details['status_code'] == 200:
+                        for policy in child_policies_details['body'].get('resources', []):
+                            child_all_policies[policy.get('name')] = policy
+
+                    # Get policy containers for rule group info
+                    child_containers_response = child_fw.get_policy_containers(ids=child_policy_ids)
+                    if child_containers_response['status_code'] == 200:
+                        for container in child_containers_response['body'].get('resources', []):
+                            policy_name = child_all_policies.get(container.get('policy_id'), {}).get('name')
+                            if policy_name and policy_name in child_all_policies:
+                                child_all_policies[policy_name]['rule_group_ids'] = container.get('rule_group_ids', [])
+
             # Validate Network Locations
             if replicated_data.get('network_locations'):
                 loc_count = len(replicated_data['network_locations'])
@@ -1146,30 +1191,8 @@ class FirewallReplicator:
 
                     loc_name = parent_loc.get('name')
 
-                    # Query child for this location by name
-                    child_locs_response = child_fw.query_network_locations()
-                    if child_locs_response['status_code'] != 200:
-                        self.logger.error(f"Failed to query Child Network Locations: {child_locs_response['body']}")
-                        continue
-
-                    child_loc_ids = child_locs_response['body'].get('resources', [])
-                    if not child_loc_ids:
-                        validation_results['network_locations']['missing'] += 1
-                        validation_results['network_locations']['details'].append({
-                            'name': loc_name,
-                            'status': 'MISSING',
-                            'issue': 'No Network Locations found in Child CID'
-                        })
-                        continue
-
-                    child_locs_details = child_fw.get_network_locations(ids=child_loc_ids)
-
-                    child_loc = None
-                    if child_locs_details['status_code'] == 200:
-                        for loc in child_locs_details['body'].get('resources', []):
-                            if loc.get('name') == loc_name:
-                                child_loc = loc
-                                break
+                    # Lookup in pre-fetched Child locations
+                    child_loc = child_all_locs.get(loc_name)
 
                     if not child_loc:
                         validation_results['network_locations']['missing'] += 1
@@ -1211,30 +1234,8 @@ class FirewallReplicator:
 
                     rg_name = parent_rg.get('name')
 
-                    # Query child for this rule group
-                    child_rgs_response = child_fw.query_rule_groups()
-                    if child_rgs_response['status_code'] != 200:
-                        self.logger.error(f"Failed to query Child Rule Groups: {child_rgs_response['body']}")
-                        continue
-
-                    child_rg_ids = child_rgs_response['body'].get('resources', [])
-                    if not child_rg_ids:
-                        validation_results['rule_groups']['missing'] += 1
-                        validation_results['rule_groups']['details'].append({
-                            'name': rg_name,
-                            'status': 'MISSING',
-                            'issue': 'No Rule Groups found in Child CID'
-                        })
-                        continue
-
-                    child_rgs_details = child_fw.get_rule_groups(ids=child_rg_ids)
-
-                    child_rg = None
-                    if child_rgs_details['status_code'] == 200:
-                        for rg in child_rgs_details['body'].get('resources', []):
-                            if rg.get('name') == rg_name:
-                                child_rg = rg
-                                break
+                    # Lookup in pre-fetched Child rule groups
+                    child_rg = child_all_rgs.get(rg_name)
 
                     if not child_rg:
                         validation_results['rule_groups']['missing'] += 1
@@ -1287,30 +1288,8 @@ class FirewallReplicator:
 
                     policy_name = parent_policy.get('name')
 
-                    # Query child for this policy
-                    child_policies_response = child_fp.query_policies()
-                    if child_policies_response['status_code'] != 200:
-                        self.logger.error(f"Failed to query Child Policies: {child_policies_response['body']}")
-                        continue
-
-                    child_policy_ids = child_policies_response['body'].get('resources', [])
-                    if not child_policy_ids:
-                        validation_results['policies']['missing'] += 1
-                        validation_results['policies']['details'].append({
-                            'name': policy_name,
-                            'status': 'MISSING',
-                            'issue': 'No Policies found in Child CID'
-                        })
-                        continue
-
-                    child_policies_details = child_fp.get_policies(ids=child_policy_ids)
-
-                    child_policy = None
-                    if child_policies_details['status_code'] == 200:
-                        for policy in child_policies_details['body'].get('resources', []):
-                            if policy.get('name') == policy_name:
-                                child_policy = policy
-                                break
+                    # Lookup in pre-fetched Child policies
+                    child_policy = child_all_policies.get(policy_name)
 
                     if not child_policy:
                         validation_results['policies']['missing'] += 1

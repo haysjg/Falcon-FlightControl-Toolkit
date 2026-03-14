@@ -606,6 +606,9 @@ class FirewallReplicator:
 
         original_name = location_config.get('name')
 
+        # Display information
+        print_info(f"  Replicating: {original_name}")
+
         try:
             response = self.falcon_fw.create_network_locations(body=location_config)
 
@@ -678,18 +681,27 @@ class FirewallReplicator:
         # Extract rules from the source group data
         source_rules = group_data.get('rules', [])
 
+        # Get enabled status from source (preserve disabled state)
+        group_enabled = group_data.get('enabled', True)
+
         # Prepare rules with precedence preserved
         rules_to_create = []
+        disabled_rules_count = 0
         if source_rules:
             # Sort rules by precedence to ensure correct order
             sorted_rules = sorted(source_rules, key=lambda r: r.get('precedence', 999999))
 
             for rule in sorted_rules:
+                # Get enabled status (preserve disabled state)
+                rule_enabled = rule.get('enabled', True)
+                if not rule_enabled:
+                    disabled_rules_count += 1
+
                 # Build rule configuration
                 rule_config = {
                     'name': rule.get('name'),
                     'description': rule.get('description', ''),
-                    'enabled': rule.get('enabled', True),
+                    'enabled': rule_enabled,  # CRITICAL: Preserve enabled/disabled status
                     'precedence': rule.get('precedence'),  # CRITICAL: Preserve precedence
                     'action': rule.get('action'),
                     'direction': rule.get('direction'),
@@ -722,12 +734,17 @@ class FirewallReplicator:
         group_config = {
             'name': group_data.get('name'),
             'description': group_data.get('description', ''),
-            'enabled': group_data.get('enabled', True),
+            'enabled': group_enabled,  # CRITICAL: Preserve enabled/disabled status
             'platform': group_data.get('platform'),
             'rules': rules_to_create  # Include all rules with precedence
         }
 
         original_name = group_config.get('name')
+
+        # Display status information
+        status_indicator = "✓ Enabled" if group_enabled else "⊗ Disabled"
+        rules_status = f"{len(source_rules)} rules ({disabled_rules_count} disabled)" if source_rules else "no rules"
+        print_info(f"  Replicating: {original_name} [{status_indicator}] - {rules_status}")
 
         try:
             response = self.falcon_fw.create_rule_group(body=group_config)
@@ -806,13 +823,21 @@ class FirewallReplicator:
         """
         # Create policy using FirewallPolicies API
         original_name = policy_data.get('name')
+        policy_enabled = policy_data.get('enabled', True)
+
+        # Display status information
+        status_indicator = "✓ Enabled" if policy_enabled else "⊗ Disabled"
+        rg_count = len(policy_data.get('rule_group_ids', []))
+        rg_info = f"{rg_count} Rule Groups" if rg_count > 0 else "no Rule Groups"
+        print_info(f"  Replicating: {original_name} [{status_indicator}] - {rg_info}")
 
         policy_body = {
             "resources": [
                 {
                     "name": original_name,
                     "description": policy_data.get('description', ''),
-                    "platform_name": policy_data.get('platform_name')
+                    "platform_name": policy_data.get('platform_name'),
+                    "enabled": policy_enabled  # CRITICAL: Preserve enabled/disabled status
                 }
             ]
         }
@@ -863,7 +888,8 @@ class FirewallReplicator:
                                     "id": existing_id,
                                     "name": original_name,
                                     "description": policy_data.get('description', ''),
-                                    "platform_name": policy_data.get('platform_name')
+                                    "platform_name": policy_data.get('platform_name'),
+                                    "enabled": policy_enabled  # CRITICAL: Preserve enabled/disabled status
                                 }
                             ]
                         }

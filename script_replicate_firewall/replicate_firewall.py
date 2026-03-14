@@ -1042,39 +1042,55 @@ class FirewallReplicator:
                              if rule_group_id_map.get(old_id)]
 
                 if new_rg_ids:
-                    # CRITICAL: Add delay to allow policy creation to fully propagate
+                    # CRITICAL: Add initial delay to allow policy creation to fully propagate
                     # CrowdStrike API needs time between policy creation and rule group assignment
-                    time.sleep(2)
+                    time.sleep(1)
 
-                    # Update policy container with rule groups (with retry)
-                    update_body = {
-                        "policy_id": policy_id,
-                        "rule_group_ids": new_rg_ids,
-                        "default_inbound": policy_data.get('default_inbound', 'ALLOW'),
-                        "default_outbound": policy_data.get('default_outbound', 'ALLOW'),
-                        "enforce": policy_data.get('enforce', False),
-                        "local_logging": policy_data.get('local_logging', False),
-                        "tracking": policy_data.get('tracking', 'none'),
-                        "test_mode": policy_data.get('test_mode', False)
-                    }
-
-                    # Retry mechanism for rule group assignment (increased attempts and delays)
+                    # Retry mechanism with policy reload (as indicated by 409 error message)
                     max_retries = 5
-                    base_delay = 3  # seconds
+                    base_delay = 2  # Start with shorter delay since we reload
 
                     for attempt in range(max_retries):
+                        # RELOAD policy from API to get fresh state (fixes 409 "reload and try again")
+                        if attempt > 0:
+                            self.logger.debug(f"Reloading policy '{original_name}' from API before retry {attempt + 1}")
+                            reload_response = self.falcon_fp.get_policies(ids=[policy_id])
+
+                            if reload_response['status_code'] == 200 and reload_response['body'].get('resources'):
+                                # Use fresh policy data for update
+                                fresh_policy = reload_response['body']['resources'][0]
+                                self.logger.debug(f"Policy reloaded successfully, updating body with fresh data")
+                            else:
+                                self.logger.warning(f"Failed to reload policy, continuing with original data")
+                                fresh_policy = None
+                        else:
+                            fresh_policy = None
+
+                        # Build update body (use fresh data if available, otherwise original)
+                        base_policy = fresh_policy if fresh_policy else policy_data
+                        update_body = {
+                            "policy_id": policy_id,
+                            "rule_group_ids": new_rg_ids,
+                            "default_inbound": base_policy.get('default_inbound', 'ALLOW'),
+                            "default_outbound": base_policy.get('default_outbound', 'ALLOW'),
+                            "enforce": base_policy.get('enforce', False),
+                            "local_logging": base_policy.get('local_logging', False),
+                            "tracking": base_policy.get('tracking', 'none'),
+                            "test_mode": base_policy.get('test_mode', False)
+                        }
+
                         update_response = self.falcon_fw.update_policy_container(
                             ids=policy_id,
                             body=update_body
                         )
 
                         if update_response['status_code'] in [200, 201]:
-                            self.logger.info(f"Successfully assigned {len(new_rg_ids)} rule groups to policy '{original_name}'")
+                            self.logger.info(f"Successfully assigned {len(new_rg_ids)} rule groups to policy '{original_name}' (attempt {attempt + 1})")
                             break
                         elif attempt < max_retries - 1:
-                            # Exponential backoff: 3s, 6s, 9s, 12s
+                            # Progressive backoff: 2s, 4s, 6s, 8s
                             retry_delay = base_delay * (attempt + 1)
-                            self.logger.warning(f"Rule group assignment attempt {attempt + 1} failed, retrying in {retry_delay}s...")
+                            self.logger.warning(f"Rule group assignment attempt {attempt + 1} failed, reloading and retrying in {retry_delay}s...")
                             time.sleep(retry_delay)
                         else:
                             # Final attempt failed

@@ -478,27 +478,96 @@ class FirewallReplicator:
             except ValueError:
                 print_error("Invalid input. Please enter numbers separated by commas, 'all', or 'q'")
 
-    def replicate_network_location(self, location_data: Dict[str, Any], target_cid: str) -> Optional[str]:
+    def handle_duplicate(self, resource_type: str, resource_name: str, child_name: str) -> str:
+        """Ask user how to handle duplicate resource
+
+        Args:
+            resource_type: Type of resource (Policy, Rule Group, Network Location)
+            resource_name: Name of the duplicate resource
+            child_name: Name of the Child CID
+
+        Returns:
+            Action to take: 'skip', 'rename', or 'overwrite'
+        """
+        print()
+        print_warning(f"⚠️  {resource_type} '{resource_name}' already exists in {child_name}")
+        print()
+        print_info("How would you like to proceed?")
+        print_info("  [1] Skip - Keep existing resource, don't replicate")
+        print_info("  [2] Rename - Create new with version suffix (e.g., '_v2')")
+        print_info("  [3] Overwrite - Update existing resource with Parent version")
+        print_info("  [4] Skip All - Skip all remaining duplicates for this Child CID")
+        print()
+
+        while True:
+            choice = input("Your choice (1-4): ").strip()
+
+            if choice == '1':
+                return 'skip'
+            elif choice == '2':
+                return 'rename'
+            elif choice == '3':
+                return 'overwrite'
+            elif choice == '4':
+                return 'skip_all'
+            else:
+                print_error("Invalid choice. Please enter 1, 2, 3, or 4")
+
+    def replicate_network_location(self, location_data: Dict[str, Any], target_cid: str,
+                                   skip_duplicates: bool = False) -> Optional[str]:
         """Replicate a network location to target CID
 
         Args:
             location_data: Network location configuration
             target_cid: Target CID
+            skip_duplicates: If True, silently skip duplicates without asking
 
         Returns:
-            Created location ID or None if failed
+            Created location ID or None if skipped/failed
         """
         # Remove fields that shouldn't be in creation request
         location_config = {k: v for k, v in location_data.items()
                           if k not in ['id', 'created_by', 'created_on', 'modified_by', 'modified_on', 'cid']}
+
+        original_name = location_config.get('name')
 
         try:
             response = self.falcon_fw.create_network_locations(body=location_config)
 
             if response['status_code'] in [200, 201]:
                 return response['body']['resources'][0]['id']
+            elif response['status_code'] == 400:
+                errors = response['body'].get('errors', [])
+                # Check if it's a duplicate name error
+                if any('duplicate name' in str(err).lower() for err in errors):
+                    if skip_duplicates:
+                        return None  # Silently skip
+
+                    # Ask user what to do
+                    child_name = self.cid_names.get(target_cid, target_cid[:12])
+                    action = self.handle_duplicate("Network Location", original_name, child_name)
+
+                    if action == 'skip' or action == 'skip_all':
+                        return None
+                    elif action == 'rename':
+                        # Try with _v2, _v3, etc.
+                        for version in range(2, 10):
+                            location_config['name'] = f"{original_name}_v{version}"
+                            response = self.falcon_fw.create_network_locations(body=location_config)
+                            if response['status_code'] in [200, 201]:
+                                print_success(f"✓ Created as '{location_config['name']}'")
+                                return response['body']['resources'][0]['id']
+                        print_error(f"Failed to create renamed location after multiple attempts")
+                        return None
+                    elif action == 'overwrite':
+                        # TODO: Implement update logic
+                        print_warning("Overwrite not yet implemented - skipping")
+                        return None
+                else:
+                    print_error(f"Failed to create location '{original_name}': {errors}")
+                    return None
             else:
-                print_error(f"Failed to create location '{location_config.get('name')}': {response['body'].get('errors')}")
+                print_error(f"Failed to create location '{original_name}': {response['body'].get('errors')}")
                 return None
         except Exception as e:
             print_error(f"Exception creating location: {e}")
@@ -536,6 +605,15 @@ class FirewallReplicator:
                 if resources:
                     return resources[0] if isinstance(resources[0], str) else resources[0].get('id')
                 return None
+            elif response['status_code'] == 400:
+                errors = response['body'].get('errors', [])
+                # Check if it's a duplicate name error
+                if any('duplicate' in str(err).lower() for err in errors):
+                    # Skip silently - already exists
+                    return None
+                else:
+                    print_error(f"Failed to create rule group '{group_config.get('name')}': {errors}")
+                    return None
             else:
                 print_error(f"Failed to create rule group '{group_config.get('name')}': {response['body'].get('errors')}")
                 return None
@@ -570,8 +648,14 @@ class FirewallReplicator:
             response = self.falcon_fp.create_policies(body=policy_body)
 
             if response['status_code'] not in [200, 201]:
-                print_error(f"Failed to create policy '{policy_data.get('name')}': {response['body'].get('errors')}")
-                return None
+                errors = response['body'].get('errors', [])
+                # Check if it's a duplicate name error
+                if any('duplicate' in str(err).lower() for err in errors):
+                    # Skip silently - already exists
+                    return None
+                else:
+                    print_error(f"Failed to create policy '{policy_data.get('name')}': {errors}")
+                    return None
 
             policy_id = response['body']['resources'][0]['id']
 
@@ -644,12 +728,17 @@ class FirewallReplicator:
         if self.network_locations:
             print_info(f"Replicating {len(self.network_locations)} Network Locations...")
             success_count = 0
+            skipped_count = 0
             for loc_id, loc_data in self.network_locations.items():
                 new_id = self.replicate_network_location(loc_data, child_cid)
                 if new_id:
                     location_id_map[loc_id] = new_id
                     success_count += 1
-            print_success(f"✓ Created {success_count}/{len(self.network_locations)} Network Locations")
+                else:
+                    skipped_count += 1
+            print_success(f"✓ Created {success_count} Network Locations")
+            if skipped_count > 0:
+                print_info(f"  (Skipped {skipped_count} - already exist)")
             print()
 
         # Step 3: Replicate Rule Groups
@@ -657,6 +746,7 @@ class FirewallReplicator:
         if required_rule_group_ids:
             print_info(f"Replicating {len(required_rule_group_ids)} Rule Groups...")
             success_count = 0
+            skipped_count = 0
             for rg_id in required_rule_group_ids:
                 rg_data = self.rule_groups.get(rg_id)
                 if rg_data:
@@ -664,19 +754,28 @@ class FirewallReplicator:
                     if new_id:
                         rule_group_id_map[rg_id] = new_id
                         success_count += 1
-            print_success(f"✓ Created {success_count}/{len(required_rule_group_ids)} Rule Groups")
+                    else:
+                        skipped_count += 1
+            print_success(f"✓ Created {success_count} Rule Groups")
+            if skipped_count > 0:
+                print_info(f"  (Skipped {skipped_count} - already exist)")
             print()
 
         # Step 4: Replicate Policies
         print_info(f"Replicating {len(selected_policy_ids)} Policies...")
         success_count = 0
+        skipped_count = 0
         for policy_id in selected_policy_ids:
             policy_data = self.policy_containers.get(policy_id)
             if policy_data:
                 new_id = self.replicate_policy(policy_data, child_cid, rule_group_id_map)
                 if new_id:
                     success_count += 1
-        print_success(f"✓ Created {success_count}/{len(selected_policy_ids)} Policies")
+                else:
+                    skipped_count += 1
+        print_success(f"✓ Created {success_count} Policies")
+        if skipped_count > 0:
+            print_info(f"  (Skipped {skipped_count} - already exist)")
         print()
 
         print_success(f"✓ Replication to {child_name} complete!")

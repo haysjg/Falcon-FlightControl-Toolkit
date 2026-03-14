@@ -30,8 +30,10 @@ if sys.platform == 'win32':
 
 import argparse
 import json
+import logging
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
+from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -47,17 +49,29 @@ from utils.formatting import (
 class FirewallReplicator:
     """Handles replication of Firewall Management configurations across CIDs"""
 
-    def __init__(self, client_id: str, client_secret: str, base_url: str = "https://api.crowdstrike.com"):
+    def __init__(self, client_id: str, client_secret: str, base_url: str = "https://api.crowdstrike.com",
+                 dry_run: bool = False, log_file: Optional[str] = None):
         """Initialize the Firewall Replicator
 
         Args:
             client_id: CrowdStrike API Client ID
             client_secret: CrowdStrike API Client Secret
             base_url: API base URL (default: US-1)
+            dry_run: If True, preview changes without executing them
+            log_file: Optional path to log file
         """
         self.client_id = client_id
         self.client_secret = client_secret
         self.base_url = base_url
+        self.dry_run = dry_run
+
+        # Setup logging
+        self.logger = self._setup_logging(log_file)
+
+        if self.dry_run:
+            self.logger.info("=" * 80)
+            self.logger.info("DRY RUN MODE - No changes will be made")
+            self.logger.info("=" * 80)
 
         # Track conflict resolution preference
         self.skip_all_duplicates = False
@@ -94,6 +108,82 @@ class FirewallReplicator:
         self.rules = {}
         self.rule_groups = {}
         self.policy_containers = {}
+
+    def _setup_logging(self, log_file: Optional[str] = None) -> logging.Logger:
+        """Setup logging to file and console
+
+        Args:
+            log_file: Optional path to log file. If None, auto-generates filename.
+
+        Returns:
+            Configured logger instance
+        """
+        logger = logging.getLogger('FirewallReplicator')
+        logger.setLevel(logging.INFO)
+
+        # Remove existing handlers
+        logger.handlers = []
+
+        # Create formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+
+        # Console handler (INFO and above)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+
+        # File handler
+        if log_file is None:
+            # Auto-generate log filename
+            log_dir = Path(__file__).parent / 'logs'
+            log_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            log_file = log_dir / f'firewall_replication_{timestamp}.log'
+
+        log_file = Path(log_file)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)  # Log more detail to file
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        logger.info(f"Logging to: {log_file}")
+        logger.info("=" * 80)
+        logger.info("Firewall Management Replication Session Started")
+        logger.info("=" * 80)
+
+        return logger
+
+    def _log_operation(self, operation: str, resource_type: str, resource_name: str,
+                      target_cid: str = None, status: str = "SUCCESS", details: str = ""):
+        """Log a replication operation
+
+        Args:
+            operation: Type of operation (CREATE, UPDATE, SKIP, FAIL)
+            resource_type: Type of resource (Network Location, Rule Group, Policy, etc.)
+            resource_name: Name of the resource
+            target_cid: Target CID (optional)
+            status: Operation status (SUCCESS, FAILED, SKIPPED)
+            details: Additional details about the operation
+        """
+        cid_info = f" -> {self.cid_names.get(target_cid, target_cid[:12])}" if target_cid else ""
+        message = f"{operation} {resource_type}: {resource_name}{cid_info}"
+        if details:
+            message += f" | {details}"
+
+        if status == "SUCCESS":
+            self.logger.info(f"✓ {message}")
+        elif status == "SKIPPED":
+            self.logger.warning(f"⊗ SKIPPED: {message}")
+        elif status == "FAILED":
+            self.logger.error(f"✗ FAILED: {message}")
+        else:
+            self.logger.info(message)
 
     def get_cids(self) -> Tuple[str, List[Dict[str, str]]]:
         """Retrieve Parent and Child CIDs from Flight Control
@@ -610,24 +700,37 @@ class FirewallReplicator:
         # Display status information
         status_indicator = "✓ Enabled" if location_enabled else "⊗ Disabled"
         print_info(f"  Replicating: {original_name} [{status_indicator}]")
+        self.logger.debug(f"Replicating Network Location: {original_name} (enabled={location_enabled})")
+
+        # Dry run mode - just preview
+        if self.dry_run:
+            print_info(f"    [DRY RUN] Would create Network Location: {original_name}")
+            self._log_operation("DRY-RUN-CREATE", "Network Location", original_name, target_cid, "PREVIEW")
+            return "dry-run-id"  # Return placeholder ID
 
         try:
             response = self.falcon_fw.create_network_locations(body=location_config)
 
             if response['status_code'] in [200, 201]:
-                return response['body']['resources'][0]['id']
+                created_id = response['body']['resources'][0]['id']
+                self._log_operation("CREATE", "Network Location", original_name, target_cid, "SUCCESS", f"ID: {created_id}")
+                return created_id
             elif response['status_code'] == 400:
                 errors = response['body'].get('errors', [])
                 # Check if it's a duplicate name error
                 if any('duplicate name' in str(err).lower() for err in errors):
+                    self.logger.warning(f"Network Location '{original_name}' already exists in target CID")
                     if skip_duplicates:
+                        self._log_operation("SKIP", "Network Location", original_name, target_cid, "SKIPPED", "Duplicate")
                         return None  # Silently skip
 
                     # Ask user what to do
                     child_name = self.cid_names.get(target_cid, target_cid[:12])
                     action = self.handle_duplicate("Network Location", original_name, child_name)
+                    self.logger.info(f"User chose action: {action}")
 
                     if action == 'skip' or action == 'skip_all':
+                        self._log_operation("SKIP", "Network Location", original_name, target_cid, "SKIPPED", "User choice")
                         return None
                     elif action == 'rename':
                         # Try with _v2, _v3, etc.
@@ -636,14 +739,18 @@ class FirewallReplicator:
                             response = self.falcon_fw.create_network_locations(body=location_config)
                             if response['status_code'] in [200, 201]:
                                 print_success(f"✓ Created as '{location_config['name']}'")
-                                return response['body']['resources'][0]['id']
+                                created_id = response['body']['resources'][0]['id']
+                                self._log_operation("CREATE", "Network Location", location_config['name'], target_cid, "SUCCESS", f"Renamed from {original_name}, ID: {created_id}")
+                                return created_id
                         print_error(f"Failed to create renamed location after multiple attempts")
+                        self._log_operation("CREATE", "Network Location", original_name, target_cid, "FAILED", "All rename attempts failed")
                         return None
                     elif action == 'overwrite':
                         # Find existing resource ID
                         existing_id = self.find_existing_resource_by_name('location', original_name, target_cid)
                         if not existing_id:
                             print_error(f"Could not find existing location '{original_name}' - skipping")
+                            self._log_operation("UPDATE", "Network Location", original_name, target_cid, "FAILED", "Could not find existing resource")
                             return None
 
                         # Update the existing location
@@ -652,18 +759,24 @@ class FirewallReplicator:
 
                         if update_response['status_code'] in [200, 201]:
                             print_success(f"✓ Updated existing location '{original_name}'")
+                            self._log_operation("UPDATE", "Network Location", original_name, target_cid, "SUCCESS", f"ID: {existing_id}")
                             return existing_id
                         else:
                             print_error(f"Failed to update location: {update_response['body'].get('errors')}")
+                            self._log_operation("UPDATE", "Network Location", original_name, target_cid, "FAILED", str(update_response['body'].get('errors')))
                             return None
                 else:
                     print_error(f"Failed to create location '{original_name}': {errors}")
+                    self._log_operation("CREATE", "Network Location", original_name, target_cid, "FAILED", str(errors))
                     return None
             else:
                 print_error(f"Failed to create location '{original_name}': {response['body'].get('errors')}")
+                self._log_operation("CREATE", "Network Location", original_name, target_cid, "FAILED", str(response['body'].get('errors')))
                 return None
         except Exception as e:
             print_error(f"Exception creating location: {e}")
+            self.logger.exception(f"Exception during Network Location replication: {original_name}")
+            self._log_operation("CREATE", "Network Location", original_name, target_cid, "FAILED", f"Exception: {str(e)}")
             return None
 
     def replicate_rule_group(self, group_data: Dict[str, Any], target_cid: str,
@@ -1066,6 +1179,10 @@ Examples:
     # Mode arguments
     parser.add_argument('--non-interactive', action='store_true',
                        help='Non-interactive mode (replicate all policies to all children)')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Preview changes without executing them (dry run mode)')
+    parser.add_argument('--log-file', type=str,
+                       help='Path to log file (default: auto-generated in logs/)')
 
     args = parser.parse_args()
 
@@ -1102,8 +1219,17 @@ Examples:
         replicator = FirewallReplicator(
             client_id=client_id,
             client_secret=client_secret,
-            base_url=base_url
+            base_url=base_url,
+            dry_run=args.dry_run,
+            log_file=args.log_file
         )
+
+        # Display mode information
+        if args.dry_run:
+            print_header("DRY RUN MODE - No changes will be made")
+            print_warning("⚠️  This is a preview only. No resources will be created or modified.")
+            print()
+
     except Exception as e:
         print(f"Failed to initialize: {e}")
         sys.exit(1)

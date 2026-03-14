@@ -32,7 +32,7 @@ from falconpy import Hosts, HostGroup, PreventionPolicy, ResponsePolicies, Senso
 from utils.auth import get_credentials_smart
 from utils.formatting import (
     print_header, print_success, print_error, print_info, print_warning,
-    print_progress, print_summary_box, Colors, print_child_item
+    print_progress, print_summary_box, print_jg_logo, Colors, print_child_item
 )
 
 try:
@@ -972,6 +972,7 @@ def main():
 
     args = parser.parse_args()
 
+    print_jg_logo()
     print_header("FLIGHT CONTROL - DEVICES & POLICIES EXPORT", width=80, color=Colors.SUCCESS)
 
     # Get credentials

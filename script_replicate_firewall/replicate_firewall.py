@@ -43,7 +43,7 @@ from falconpy import OAuth2, FirewallManagement, FirewallPolicies, FlightControl
 from utils.auth import get_credentials_smart
 from utils.formatting import (
     print_header, print_section, print_info, print_success,
-    print_error, print_warning, Colors
+    print_error, print_warning, print_jg_logo, Colors
 )
 
 
@@ -711,7 +711,7 @@ class FirewallReplicator:
 
         # Display status information
         status_indicator = "✓ Enabled" if location_enabled else "⊗ Disabled"
-        print_info(f"  Replicating: {original_name} [{status_indicator}]")
+        # Removed verbose print_info to show progress bar instead
         self.logger.debug(f"Replicating Network Location: {original_name} (enabled={location_enabled})")
 
         # Dry run mode - just preview
@@ -868,10 +868,10 @@ class FirewallReplicator:
 
         original_name = group_config.get('name')
 
-        # Display status information
+        # Log status information (verbose output removed, using progress bar instead)
         status_indicator = "✓ Enabled" if group_enabled else "⊗ Disabled"
         rules_status = f"{len(source_rules)} rules ({disabled_rules_count} disabled)" if source_rules else "no rules"
-        print_info(f"  Replicating: {original_name} [{status_indicator}] - {rules_status}")
+        self.logger.debug(f"Replicating Rule Group: {original_name} [{status_indicator}] - {rules_status}")
 
         try:
             response = self.falcon_fw.create_rule_group(body=group_config)
@@ -952,11 +952,11 @@ class FirewallReplicator:
         original_name = policy_data.get('name')
         policy_enabled = policy_data.get('enabled', True)
 
-        # Display status information
+        # Log status information (verbose output removed, using progress bar instead)
         status_indicator = "✓ Enabled" if policy_enabled else "⊗ Disabled"
         rg_count = len(policy_data.get('rule_group_ids', []))
         rg_info = f"{rg_count} Rule Groups" if rg_count > 0 else "no Rule Groups"
-        print_info(f"  Replicating: {original_name} [{status_indicator}] - {rg_info}")
+        self.logger.debug(f"Replicating Policy: {original_name} [{status_indicator}] - {rg_info}")
 
         policy_body = {
             "resources": [
@@ -1058,9 +1058,9 @@ class FirewallReplicator:
                         "test_mode": policy_data.get('test_mode', False)
                     }
 
-                    # Retry mechanism for rule group assignment (max 3 attempts)
-                    max_retries = 3
-                    retry_delay = 2  # seconds
+                    # Retry mechanism for rule group assignment (increased attempts and delays)
+                    max_retries = 5
+                    base_delay = 3  # seconds
 
                     for attempt in range(max_retries):
                         update_response = self.falcon_fw.update_policy_container(
@@ -1072,7 +1072,8 @@ class FirewallReplicator:
                             self.logger.info(f"Successfully assigned {len(new_rg_ids)} rule groups to policy '{original_name}'")
                             break
                         elif attempt < max_retries - 1:
-                            # Retry on failure (except last attempt)
+                            # Exponential backoff: 3s, 6s, 9s, 12s
+                            retry_delay = base_delay * (attempt + 1)
                             self.logger.warning(f"Rule group assignment attempt {attempt + 1} failed, retrying in {retry_delay}s...")
                             time.sleep(retry_delay)
                         else:
@@ -1447,6 +1448,16 @@ class FirewallReplicator:
         print_success(f"✓ Found {len(selected_policy_ids)} policies, {len(required_rule_group_ids)} rule groups")
         print()
 
+        # Disable console logging during replication to avoid interfering with progress bars
+        console_handler = None
+        for handler in self.logger.handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                console_handler = handler
+                break
+
+        if console_handler:
+            self.logger.removeHandler(console_handler)
+
         try:
             # Step 2: Replicate Network Locations
             location_id_map = {}
@@ -1454,7 +1465,13 @@ class FirewallReplicator:
                 print_info(f"Replicating {len(self.network_locations)} Network Locations...")
                 success_count = 0
                 skipped_count = 0
-                for loc_id, loc_data in self.network_locations.items():
+                total = len(self.network_locations)
+
+                for idx, (loc_id, loc_data) in enumerate(self.network_locations.items(), 1):
+                    # Show progress on same line
+                    progress_pct = (idx / total) * 100
+                    print(f"\r  Progress: {idx}/{total} ({progress_pct:.0f}%) - {loc_data.get('name', 'Unknown')[:40]:<40}", end='', flush=True)
+
                     new_id = self.replicate_network_location(loc_data, child_cid, skip_duplicates=self.skip_all_duplicates)
                     if new_id and new_id != "dry-run-id":  # Only track real IDs
                         location_id_map[loc_id] = new_id
@@ -1467,6 +1484,7 @@ class FirewallReplicator:
                     else:
                         skipped_count += 1
 
+                print()  # New line after progress
                 print_success(f"✓ Created {success_count} Network Locations")
                 if skipped_count > 0:
                     print_info(f"  (Skipped {skipped_count} - already exist)")
@@ -1478,9 +1496,15 @@ class FirewallReplicator:
                 print_info(f"Replicating {len(required_rule_group_ids)} Rule Groups...")
                 success_count = 0
                 skipped_count = 0
-                for rg_id in required_rule_group_ids:
+                total = len(required_rule_group_ids)
+
+                for idx, rg_id in enumerate(required_rule_group_ids, 1):
                     rg_data = self.rule_groups.get(rg_id)
                     if rg_data:
+                        # Show progress on same line
+                        progress_pct = (idx / total) * 100
+                        print(f"\r  Progress: {idx}/{total} ({progress_pct:.0f}%) - {rg_data.get('name', 'Unknown')[:40]:<40}", end='', flush=True)
+
                         new_id = self.replicate_rule_group(rg_data, child_cid, location_id_map, skip_duplicates=self.skip_all_duplicates)
                         if new_id and new_id != "dry-run-id":
                             rule_group_id_map[rg_id] = new_id
@@ -1492,6 +1516,7 @@ class FirewallReplicator:
                         else:
                             skipped_count += 1
 
+                print()  # New line after progress
                 print_success(f"✓ Created {success_count} Rule Groups")
                 if skipped_count > 0:
                     print_info(f"  (Skipped {skipped_count} - already exist)")
@@ -1501,9 +1526,15 @@ class FirewallReplicator:
             print_info(f"Replicating {len(selected_policy_ids)} Policies...")
             success_count = 0
             skipped_count = 0
-            for policy_id in selected_policy_ids:
+            total = len(selected_policy_ids)
+
+            for idx, policy_id in enumerate(selected_policy_ids, 1):
                 policy_data = self.policy_containers.get(policy_id)
                 if policy_data:
+                    # Show progress on same line
+                    progress_pct = (idx / total) * 100
+                    print(f"\r  Progress: {idx}/{total} ({progress_pct:.0f}%) - {policy_data.get('name', 'Unknown')[:40]:<40}", end='', flush=True)
+
                     new_id = self.replicate_policy(policy_data, child_cid, rule_group_id_map, skip_duplicates=self.skip_all_duplicates)
                     if new_id and new_id != "dry-run-id":
                         replicated_data['policies'].append(policy_id)  # Track parent ID
@@ -1514,12 +1545,17 @@ class FirewallReplicator:
                     else:
                         skipped_count += 1
 
+            print()  # New line after progress
             print_success(f"✓ Created {success_count} Policies")
             if skipped_count > 0:
                 print_info(f"  (Skipped {skipped_count} - already exist)")
             print()
 
         finally:
+            # Re-enable console logging
+            if console_handler:
+                self.logger.addHandler(console_handler)
+
             # CRITICAL: Restore original Parent CID authentication
             self.falcon_fw = original_fw
             self.falcon_fp = original_fp
@@ -1569,7 +1605,8 @@ Examples:
 
     args = parser.parse_args()
 
-    # Print header
+    # Print logo and header
+    print_jg_logo()
     print_header("FIREWALL MANAGEMENT REPLICATION")
     print()
 

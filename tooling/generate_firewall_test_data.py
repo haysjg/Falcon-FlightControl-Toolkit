@@ -39,7 +39,7 @@ from falconpy import OAuth2, FirewallManagement, FirewallPolicies
 from utils.auth import get_credentials_smart
 from utils.formatting import (
     print_header, print_section, print_info, print_success,
-    print_error, print_warning, print_progress, Colors
+    print_error, print_warning, print_progress, print_jg_logo, Colors
 )
 
 
@@ -593,7 +593,8 @@ WARNING: This script creates many resources. Use only in test environments!
 
     args = parser.parse_args()
 
-    # Print header
+    # Print logo and header
+    print_jg_logo()
     print_header("FIREWALL MANAGEMENT TEST DATA GENERATOR")
     print()
 

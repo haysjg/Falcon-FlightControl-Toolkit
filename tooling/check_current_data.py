@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from falconpy import OAuth2, FirewallManagement, FirewallPolicies
 from utils.auth import get_credentials_smart
-from utils.formatting import print_info, print_success, print_error, print_section
+from utils.formatting import print_info, print_success, print_error, print_section, print_jg_logo
 
 # Get credentials - try config file first, then environment variables
 config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'credentials.json')
@@ -30,6 +30,7 @@ if not client_id or not client_secret:
     print_error("No credentials found. Set FALCON_CLIENT_ID and FALCON_CLIENT_SECRET environment variables or use config file.")
     sys.exit(1)
 
+print_jg_logo()
 print_section("CURRENT FIREWALL TEST DATA STATUS")
 print_info(f"Using credentials from: {source}")
 print()

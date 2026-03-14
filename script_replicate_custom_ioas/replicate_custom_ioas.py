@@ -36,7 +36,7 @@ from utils.auth import get_credentials_smart
 from utils.common import check_response, extract_resources
 from utils.formatting import (
     print_header, print_success, print_error, print_info, print_warning,
-    print_progress, print_summary_box, print_section, Colors, Style
+    print_progress, print_summary_box, print_section, print_jg_logo, Colors, Style
 )
 
 
@@ -658,6 +658,7 @@ def main():
 
     args = parser.parse_args()
 
+    print_jg_logo()
     print_header("FLIGHT CONTROL - CUSTOM IOAs REPLICATOR", width=80, color=Colors.SUCCESS)
 
     # Get credentials

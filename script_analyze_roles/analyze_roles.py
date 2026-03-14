@@ -41,7 +41,7 @@ from utils.formatting import (
     print_header, print_section, print_success, print_error, print_warning, print_info,
     print_progress, print_table, print_summary_box, print_status_indicator,
     print_coverage_bar, print_role_item, print_child_item, create_summary_table,
-    print_action_items, print_credentials_source, Colors
+    print_action_items, print_credentials_source, print_jg_logo, Colors
 )
 
 try:
@@ -1300,6 +1300,7 @@ def main():
         return  # validate_replication exits on its own
 
     try:
+        print_jg_logo()
         print_header("FLIGHT CONTROL - CUSTOM ROLES ANALYZER", width=80, color=Colors.SUCCESS)
         print_credentials_source(source)
 

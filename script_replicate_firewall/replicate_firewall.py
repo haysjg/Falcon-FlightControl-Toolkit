@@ -481,6 +481,75 @@ class FirewallReplicator:
             except ValueError:
                 print_error("Invalid input. Please enter numbers separated by commas, 'all', or 'q'")
 
+    def find_existing_resource_by_name(self, resource_type: str, name: str, target_cid: str) -> Optional[str]:
+        """Find existing resource ID by name in target CID
+
+        Args:
+            resource_type: Type of resource ('location', 'rule_group', 'policy')
+            name: Name of the resource to find
+            target_cid: Target CID to search in
+
+        Returns:
+            Resource ID if found, None otherwise
+        """
+        try:
+            if resource_type == 'location':
+                # Query network locations
+                response = self.falcon_fw.query_network_locations()
+                if response['status_code'] != 200:
+                    return None
+
+                location_ids = response['body']['resources']
+                if not location_ids:
+                    return None
+
+                # Get details to find by name
+                details = self.falcon_fw.get_network_locations(ids=location_ids)
+                if details['status_code'] == 200:
+                    for loc in details['body'].get('resources', []):
+                        if loc.get('name') == name:
+                            return loc.get('id')
+
+            elif resource_type == 'rule_group':
+                # Query rule groups
+                response = self.falcon_fw.query_rule_groups()
+                if response['status_code'] != 200:
+                    return None
+
+                rg_ids = response['body']['resources']
+                if not rg_ids:
+                    return None
+
+                # Get details to find by name
+                details = self.falcon_fw.get_rule_groups(ids=rg_ids)
+                if details['status_code'] == 200:
+                    for rg in details['body'].get('resources', []):
+                        if rg.get('name') == name:
+                            return rg.get('id')
+
+            elif resource_type == 'policy':
+                # Query policies
+                response = self.falcon_fp.query_policies()
+                if response['status_code'] != 200:
+                    return None
+
+                policy_ids = response['body']['resources']
+                if not policy_ids:
+                    return None
+
+                # Get details to find by name
+                details = self.falcon_fp.get_policies(ids=policy_ids)
+                if details['status_code'] == 200:
+                    for policy in details['body'].get('resources', []):
+                        if policy.get('name') == name:
+                            return policy.get('id')
+
+            return None
+
+        except Exception as e:
+            print_error(f"Error finding existing {resource_type}: {e}")
+            return None
+
     def handle_duplicate(self, resource_type: str, resource_name: str, child_name: str) -> str:
         """Ask user how to handle duplicate resource
 
@@ -565,9 +634,22 @@ class FirewallReplicator:
                         print_error(f"Failed to create renamed location after multiple attempts")
                         return None
                     elif action == 'overwrite':
-                        # TODO: Implement update logic
-                        print_warning("Overwrite not yet implemented - skipping")
-                        return None
+                        # Find existing resource ID
+                        existing_id = self.find_existing_resource_by_name('location', original_name, target_cid)
+                        if not existing_id:
+                            print_error(f"Could not find existing location '{original_name}' - skipping")
+                            return None
+
+                        # Update the existing location
+                        location_config['id'] = existing_id
+                        update_response = self.falcon_fw.update_network_locations(body=location_config)
+
+                        if update_response['status_code'] in [200, 201]:
+                            print_success(f"✓ Updated existing location '{original_name}'")
+                            return existing_id
+                        else:
+                            print_error(f"Failed to update location: {update_response['body'].get('errors')}")
+                            return None
                 else:
                     print_error(f"Failed to create location '{original_name}': {errors}")
                     return None
@@ -641,9 +723,22 @@ class FirewallReplicator:
                         print_error(f"Failed to create renamed rule group after multiple attempts")
                         return None
                     elif action == 'overwrite':
-                        # TODO: Implement update logic
-                        print_warning("Overwrite not yet implemented - skipping")
-                        return None
+                        # Find existing resource ID
+                        existing_id = self.find_existing_resource_by_name('rule_group', original_name, target_cid)
+                        if not existing_id:
+                            print_error(f"Could not find existing rule group '{original_name}' - skipping")
+                            return None
+
+                        # Update the existing rule group
+                        group_config['id'] = existing_id
+                        update_response = self.falcon_fw.update_rule_group(body=group_config)
+
+                        if update_response['status_code'] in [200, 201]:
+                            print_success(f"✓ Updated existing rule group '{original_name}'")
+                            return existing_id
+                        else:
+                            print_error(f"Failed to update rule group: {update_response['body'].get('errors')}")
+                            return None
                 else:
                     print_error(f"Failed to create rule group '{original_name}': {errors}")
                     return None
@@ -714,9 +809,31 @@ class FirewallReplicator:
                         else:
                             return None
                     elif action == 'overwrite':
-                        # TODO: Implement update logic
-                        print_warning("Overwrite not yet implemented - skipping")
-                        return None
+                        # Find existing policy ID
+                        existing_id = self.find_existing_resource_by_name('policy', original_name, target_cid)
+                        if not existing_id:
+                            print_error(f"Could not find existing policy '{original_name}' - skipping")
+                            return None
+
+                        # Update the existing policy
+                        update_body = {
+                            "resources": [
+                                {
+                                    "id": existing_id,
+                                    "name": original_name,
+                                    "description": policy_data.get('description', ''),
+                                    "platform_name": policy_data.get('platform_name')
+                                }
+                            ]
+                        }
+                        update_response = self.falcon_fp.update_policies(body=update_body)
+
+                        if update_response['status_code'] in [200, 201]:
+                            print_success(f"✓ Updated existing policy '{original_name}'")
+                            policy_id = existing_id
+                        else:
+                            print_error(f"Failed to update policy: {update_response['body'].get('errors')}")
+                            return None
                 else:
                     print_error(f"Failed to create policy '{original_name}': {errors}")
                     return None

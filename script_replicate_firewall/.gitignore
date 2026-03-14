@@ -1,0 +1,18 @@
+# Test scripts
+test_*.py
+test_*.sh
+
+# Debug scripts
+debug_*.py
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

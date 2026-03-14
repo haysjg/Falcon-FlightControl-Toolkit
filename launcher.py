@@ -116,9 +116,18 @@ def display_menu():
     clear_screen()
     print_jg_logo()
 
-    # Compact title
+    # ASCII art title
     print(f"  {Colors.HIGHLIGHT}{'━' * 78}{Colors.RESET}")
-    print(f"  {Colors.SUCCESS}  CROWDSTRIKE FALCON FLIGHTCONTROL TOOLKIT{Colors.RESET}")
+    print()
+    print(f"   {Colors.SUCCESS}██████╗ ███████╗{Colors.RESET}    {Colors.HIGHLIGHT}███████╗ █████╗ ██╗      ██████╗ ██████╗ ███╗   ██╗{Colors.RESET}")
+    print(f"  {Colors.SUCCESS}██╔════╝ ██╔════╝{Colors.RESET}    {Colors.HIGHLIGHT}██╔════╝██╔══██╗██║     ██╔════╝██╔═══██╗████╗  ██║{Colors.RESET}")
+    print(f"  {Colors.SUCCESS}██║      ███████╗{Colors.RESET}    {Colors.HIGHLIGHT}█████╗  ███████║██║     ██║     ██║   ██║██╔██╗ ██║{Colors.RESET}")
+    print(f"  {Colors.SUCCESS}██║      ╚════██║{Colors.RESET}    {Colors.HIGHLIGHT}██╔══╝  ██╔══██║██║     ██║     ██║   ██║██║╚██╗██║{Colors.RESET}")
+    print(f"  {Colors.SUCCESS}╚██████╗ ███████║{Colors.RESET}    {Colors.HIGHLIGHT}██║     ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║{Colors.RESET}")
+    print(f"   {Colors.SUCCESS}╚═════╝ ╚══════╝{Colors.RESET}    {Colors.HIGHLIGHT}╚═╝     ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝{Colors.RESET}")
+    print()
+    print(f"         {Colors.INFO}🦅 F L I G H T C O N T R O L   T O O L K I T{Colors.RESET}")
+    print()
     print(f"  {Colors.HIGHLIGHT}{'━' * 78}{Colors.RESET}")
     print()
 

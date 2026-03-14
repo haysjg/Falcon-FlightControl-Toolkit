@@ -1402,6 +1402,33 @@ class FirewallReplicator:
         # Reset skip_all flag for this Child CID
         self.skip_all_duplicates = False
 
+        # CRITICAL: Switch authentication to Child CID using member_cid
+        self.logger.info(f"Switching to Child CID for replication: {child_cid}")
+        original_fw = self.falcon_fw
+        original_fp = self.falcon_fp
+
+        try:
+            # Create new auth for Child CID
+            child_auth = OAuth2(
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                base_url=self.base_url,
+                member_cid=child_cid
+            )
+            token_result = child_auth.token()
+            if token_result.get('status_code') != 201:
+                raise Exception(f"Failed to authenticate to Child CID: {token_result}")
+
+            # Replace with Child CID authenticated clients
+            self.falcon_fw = FirewallManagement(auth_object=child_auth)
+            self.falcon_fp = FirewallPolicies(auth_object=child_auth)
+            self.logger.info(f"Successfully authenticated to Child CID: {child_name}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to switch to Child CID: {e}")
+            print_error(f"Failed to authenticate to Child CID: {e}")
+            return replicated_data
+
         # Step 1: Collect all dependencies
         print_info("Analyzing dependencies...")
 
@@ -1422,76 +1449,83 @@ class FirewallReplicator:
         print_success(f"✓ Found {len(selected_policy_ids)} policies, {len(required_rule_group_ids)} rule groups")
         print()
 
-        # Step 2: Replicate Network Locations
-        location_id_map = {}
-        if self.network_locations:
-            print_info(f"Replicating {len(self.network_locations)} Network Locations...")
-            success_count = 0
-            skipped_count = 0
-            for loc_id, loc_data in self.network_locations.items():
-                new_id = self.replicate_network_location(loc_data, child_cid, skip_duplicates=self.skip_all_duplicates)
-                if new_id and new_id != "dry-run-id":  # Only track real IDs
-                    location_id_map[loc_id] = new_id
-                    replicated_data['network_locations'].append(loc_id)  # Track parent ID
-                    success_count += 1
-                elif new_id == "dry-run-id":
-                    # In dry-run mode, still track it
-                    replicated_data['network_locations'].append(loc_id)
-                    success_count += 1
-                else:
-                    skipped_count += 1
-
-            print_success(f"✓ Created {success_count} Network Locations")
-            if skipped_count > 0:
-                print_info(f"  (Skipped {skipped_count} - already exist)")
-            print()
-
-        # Step 3: Replicate Rule Groups
-        rule_group_id_map = {}
-        if required_rule_group_ids:
-            print_info(f"Replicating {len(required_rule_group_ids)} Rule Groups...")
-            success_count = 0
-            skipped_count = 0
-            for rg_id in required_rule_group_ids:
-                rg_data = self.rule_groups.get(rg_id)
-                if rg_data:
-                    new_id = self.replicate_rule_group(rg_data, child_cid, location_id_map, skip_duplicates=self.skip_all_duplicates)
-                    if new_id and new_id != "dry-run-id":
-                        rule_group_id_map[rg_id] = new_id
-                        replicated_data['rule_groups'].append(rg_id)  # Track parent ID
+        try:
+            # Step 2: Replicate Network Locations
+            location_id_map = {}
+            if self.network_locations:
+                print_info(f"Replicating {len(self.network_locations)} Network Locations...")
+                success_count = 0
+                skipped_count = 0
+                for loc_id, loc_data in self.network_locations.items():
+                    new_id = self.replicate_network_location(loc_data, child_cid, skip_duplicates=self.skip_all_duplicates)
+                    if new_id and new_id != "dry-run-id":  # Only track real IDs
+                        location_id_map[loc_id] = new_id
+                        replicated_data['network_locations'].append(loc_id)  # Track parent ID
                         success_count += 1
                     elif new_id == "dry-run-id":
-                        replicated_data['rule_groups'].append(rg_id)
+                        # In dry-run mode, still track it
+                        replicated_data['network_locations'].append(loc_id)
                         success_count += 1
                     else:
                         skipped_count += 1
 
-            print_success(f"✓ Created {success_count} Rule Groups")
+                print_success(f"✓ Created {success_count} Network Locations")
+                if skipped_count > 0:
+                    print_info(f"  (Skipped {skipped_count} - already exist)")
+                print()
+
+            # Step 3: Replicate Rule Groups
+            rule_group_id_map = {}
+            if required_rule_group_ids:
+                print_info(f"Replicating {len(required_rule_group_ids)} Rule Groups...")
+                success_count = 0
+                skipped_count = 0
+                for rg_id in required_rule_group_ids:
+                    rg_data = self.rule_groups.get(rg_id)
+                    if rg_data:
+                        new_id = self.replicate_rule_group(rg_data, child_cid, location_id_map, skip_duplicates=self.skip_all_duplicates)
+                        if new_id and new_id != "dry-run-id":
+                            rule_group_id_map[rg_id] = new_id
+                            replicated_data['rule_groups'].append(rg_id)  # Track parent ID
+                            success_count += 1
+                        elif new_id == "dry-run-id":
+                            replicated_data['rule_groups'].append(rg_id)
+                            success_count += 1
+                        else:
+                            skipped_count += 1
+
+                print_success(f"✓ Created {success_count} Rule Groups")
+                if skipped_count > 0:
+                    print_info(f"  (Skipped {skipped_count} - already exist)")
+                print()
+
+            # Step 4: Replicate Policies
+            print_info(f"Replicating {len(selected_policy_ids)} Policies...")
+            success_count = 0
+            skipped_count = 0
+            for policy_id in selected_policy_ids:
+                policy_data = self.policy_containers.get(policy_id)
+                if policy_data:
+                    new_id = self.replicate_policy(policy_data, child_cid, rule_group_id_map, skip_duplicates=self.skip_all_duplicates)
+                    if new_id and new_id != "dry-run-id":
+                        replicated_data['policies'].append(policy_id)  # Track parent ID
+                        success_count += 1
+                    elif new_id == "dry-run-id":
+                        replicated_data['policies'].append(policy_id)
+                        success_count += 1
+                    else:
+                        skipped_count += 1
+
+            print_success(f"✓ Created {success_count} Policies")
             if skipped_count > 0:
                 print_info(f"  (Skipped {skipped_count} - already exist)")
             print()
 
-        # Step 4: Replicate Policies
-        print_info(f"Replicating {len(selected_policy_ids)} Policies...")
-        success_count = 0
-        skipped_count = 0
-        for policy_id in selected_policy_ids:
-            policy_data = self.policy_containers.get(policy_id)
-            if policy_data:
-                new_id = self.replicate_policy(policy_data, child_cid, rule_group_id_map, skip_duplicates=self.skip_all_duplicates)
-                if new_id and new_id != "dry-run-id":
-                    replicated_data['policies'].append(policy_id)  # Track parent ID
-                    success_count += 1
-                elif new_id == "dry-run-id":
-                    replicated_data['policies'].append(policy_id)
-                    success_count += 1
-                else:
-                    skipped_count += 1
-
-        print_success(f"✓ Created {success_count} Policies")
-        if skipped_count > 0:
-            print_info(f"  (Skipped {skipped_count} - already exist)")
-        print()
+        finally:
+            # CRITICAL: Restore original Parent CID authentication
+            self.falcon_fw = original_fw
+            self.falcon_fp = original_fp
+            self.logger.info("Restored Parent CID authentication")
 
         # Return replicated data for validation
         return replicated_data

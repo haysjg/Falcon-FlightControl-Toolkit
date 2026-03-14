@@ -59,6 +59,9 @@ class FirewallReplicator:
         self.client_secret = client_secret
         self.base_url = base_url
 
+        # Track conflict resolution preference
+        self.skip_all_duplicates = False
+
         # Initialize API clients
         print_info("Authenticating to Falcon API...")
 
@@ -488,6 +491,7 @@ class FirewallReplicator:
 
         Returns:
             Action to take: 'skip', 'rename', or 'overwrite'
+            Sets self.skip_all_duplicates = True if user chooses 'skip_all'
         """
         print()
         print_warning(f"⚠️  {resource_type} '{resource_name}' already exists in {child_name}")
@@ -509,6 +513,7 @@ class FirewallReplicator:
             elif choice == '3':
                 return 'overwrite'
             elif choice == '4':
+                self.skip_all_duplicates = True  # Set flag for future duplicates
                 return 'skip_all'
             else:
                 print_error("Invalid choice. Please enter 1, 2, 3, or 4")
@@ -574,16 +579,18 @@ class FirewallReplicator:
             return None
 
     def replicate_rule_group(self, group_data: Dict[str, Any], target_cid: str,
-                            location_id_map: Dict[str, str] = None) -> Optional[str]:
+                            location_id_map: Dict[str, str] = None,
+                            skip_duplicates: bool = False) -> Optional[str]:
         """Replicate a rule group to target CID
 
         Args:
             group_data: Rule group configuration
             target_cid: Target CID
             location_id_map: Mapping of old location IDs to new ones
+            skip_duplicates: If True, silently skip duplicates without asking
 
         Returns:
-            Created rule group ID or None if failed
+            Created rule group ID or None if skipped/failed
         """
         # Remove fields that shouldn't be in creation request
         group_config = {
@@ -593,6 +600,8 @@ class FirewallReplicator:
             'platform': group_data.get('platform'),
             'rules': []  # Will be added if present
         }
+
+        original_name = group_config.get('name')
 
         # TODO: Handle rules within the group if present
         # For now, create empty groups like the test generator
@@ -609,35 +618,63 @@ class FirewallReplicator:
                 errors = response['body'].get('errors', [])
                 # Check if it's a duplicate name error
                 if any('duplicate' in str(err).lower() for err in errors):
-                    # Skip silently - already exists
-                    return None
+                    if skip_duplicates:
+                        return None  # Silently skip
+
+                    # Ask user what to do
+                    child_name = self.cid_names.get(target_cid, target_cid[:12])
+                    action = self.handle_duplicate("Rule Group", original_name, child_name)
+
+                    if action == 'skip' or action == 'skip_all':
+                        return None
+                    elif action == 'rename':
+                        # Try with _v2, _v3, etc.
+                        for version in range(2, 10):
+                            group_config['name'] = f"{original_name}_v{version}"
+                            response = self.falcon_fw.create_rule_group(body=group_config)
+                            if response['status_code'] in [200, 201]:
+                                resources = response['body'].get('resources', [])
+                                print_success(f"✓ Created as '{group_config['name']}'")
+                                if resources:
+                                    return resources[0] if isinstance(resources[0], str) else resources[0].get('id')
+                                return None
+                        print_error(f"Failed to create renamed rule group after multiple attempts")
+                        return None
+                    elif action == 'overwrite':
+                        # TODO: Implement update logic
+                        print_warning("Overwrite not yet implemented - skipping")
+                        return None
                 else:
-                    print_error(f"Failed to create rule group '{group_config.get('name')}': {errors}")
+                    print_error(f"Failed to create rule group '{original_name}': {errors}")
                     return None
             else:
-                print_error(f"Failed to create rule group '{group_config.get('name')}': {response['body'].get('errors')}")
+                print_error(f"Failed to create rule group '{original_name}': {response['body'].get('errors')}")
                 return None
         except Exception as e:
             print_error(f"Exception creating rule group: {e}")
             return None
 
     def replicate_policy(self, policy_data: Dict[str, Any], target_cid: str,
-                        rule_group_id_map: Dict[str, str] = None) -> Optional[str]:
+                        rule_group_id_map: Dict[str, str] = None,
+                        skip_duplicates: bool = False) -> Optional[str]:
         """Replicate a policy to target CID
 
         Args:
             policy_data: Policy configuration
             target_cid: Target CID
             rule_group_id_map: Mapping of old rule group IDs to new ones
+            skip_duplicates: If True, silently skip duplicates without asking
 
         Returns:
-            Created policy ID or None if failed
+            Created policy ID or None if skipped/failed
         """
         # Create policy using FirewallPolicies API
+        original_name = policy_data.get('name')
+
         policy_body = {
             "resources": [
                 {
-                    "name": policy_data.get('name'),
+                    "name": original_name,
                     "description": policy_data.get('description', ''),
                     "platform_name": policy_data.get('platform_name')
                 }
@@ -651,10 +688,37 @@ class FirewallReplicator:
                 errors = response['body'].get('errors', [])
                 # Check if it's a duplicate name error
                 if any('duplicate' in str(err).lower() for err in errors):
-                    # Skip silently - already exists
-                    return None
+                    if skip_duplicates:
+                        return None  # Silently skip
+
+                    # Ask user what to do
+                    child_name = self.cid_names.get(target_cid, target_cid[:12])
+                    action = self.handle_duplicate("Policy", original_name, child_name)
+
+                    if action == 'skip' or action == 'skip_all':
+                        return None
+                    elif action == 'rename':
+                        # Try with _v2, _v3, etc.
+                        for version in range(2, 10):
+                            policy_body['resources'][0]['name'] = f"{original_name}_v{version}"
+                            response = self.falcon_fp.create_policies(body=policy_body)
+                            if response['status_code'] in [200, 201]:
+                                print_success(f"✓ Created as '{policy_body['resources'][0]['name']}'")
+                                policy_id = response['body']['resources'][0]['id']
+                                break
+                            else:
+                                # Check if this version also exists
+                                if version == 9:
+                                    print_error(f"Failed to create renamed policy after multiple attempts")
+                                    return None
+                        else:
+                            return None
+                    elif action == 'overwrite':
+                        # TODO: Implement update logic
+                        print_warning("Overwrite not yet implemented - skipping")
+                        return None
                 else:
-                    print_error(f"Failed to create policy '{policy_data.get('name')}': {errors}")
+                    print_error(f"Failed to create policy '{original_name}': {errors}")
                     return None
 
             policy_id = response['body']['resources'][0]['id']
@@ -703,6 +767,9 @@ class FirewallReplicator:
         child_name = self.cid_names.get(child_cid, child_cid[:12])
         print_section(f"Replicating to: {child_name}")
 
+        # Reset skip_all flag for this Child CID
+        self.skip_all_duplicates = False
+
         # Step 1: Collect all dependencies
         print_info("Analyzing dependencies...")
 
@@ -730,12 +797,13 @@ class FirewallReplicator:
             success_count = 0
             skipped_count = 0
             for loc_id, loc_data in self.network_locations.items():
-                new_id = self.replicate_network_location(loc_data, child_cid)
+                new_id = self.replicate_network_location(loc_data, child_cid, skip_duplicates=self.skip_all_duplicates)
                 if new_id:
                     location_id_map[loc_id] = new_id
                     success_count += 1
                 else:
                     skipped_count += 1
+
             print_success(f"✓ Created {success_count} Network Locations")
             if skipped_count > 0:
                 print_info(f"  (Skipped {skipped_count} - already exist)")
@@ -750,12 +818,13 @@ class FirewallReplicator:
             for rg_id in required_rule_group_ids:
                 rg_data = self.rule_groups.get(rg_id)
                 if rg_data:
-                    new_id = self.replicate_rule_group(rg_data, child_cid, location_id_map)
+                    new_id = self.replicate_rule_group(rg_data, child_cid, location_id_map, skip_duplicates=self.skip_all_duplicates)
                     if new_id:
                         rule_group_id_map[rg_id] = new_id
                         success_count += 1
                     else:
                         skipped_count += 1
+
             print_success(f"✓ Created {success_count} Rule Groups")
             if skipped_count > 0:
                 print_info(f"  (Skipped {skipped_count} - already exist)")
@@ -768,11 +837,12 @@ class FirewallReplicator:
         for policy_id in selected_policy_ids:
             policy_data = self.policy_containers.get(policy_id)
             if policy_data:
-                new_id = self.replicate_policy(policy_data, child_cid, rule_group_id_map)
+                new_id = self.replicate_policy(policy_data, child_cid, rule_group_id_map, skip_duplicates=self.skip_all_duplicates)
                 if new_id:
                     success_count += 1
                 else:
                     skipped_count += 1
+
         print_success(f"✓ Created {success_count} Policies")
         if skipped_count > 0:
             print_info(f"  (Skipped {skipped_count} - already exist)")

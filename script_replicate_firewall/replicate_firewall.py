@@ -31,6 +31,7 @@ if sys.platform == 'win32':
 import argparse
 import json
 import logging
+import time
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
@@ -1041,7 +1042,11 @@ class FirewallReplicator:
                              if rule_group_id_map.get(old_id)]
 
                 if new_rg_ids:
-                    # Update policy container with rule groups
+                    # CRITICAL: Add delay to allow policy creation to fully propagate
+                    # CrowdStrike API needs time between policy creation and rule group assignment
+                    time.sleep(2)
+
+                    # Update policy container with rule groups (with retry)
                     update_body = {
                         "policy_id": policy_id,
                         "rule_group_ids": new_rg_ids,
@@ -1053,13 +1058,27 @@ class FirewallReplicator:
                         "test_mode": policy_data.get('test_mode', False)
                     }
 
-                    update_response = self.falcon_fw.update_policy_container(
-                        ids=policy_id,
-                        body=update_body
-                    )
+                    # Retry mechanism for rule group assignment (max 3 attempts)
+                    max_retries = 3
+                    retry_delay = 2  # seconds
 
-                    if update_response['status_code'] not in [200, 201]:
-                        print_warning(f"Policy created but failed to assign rule groups: {update_response['body'].get('errors')}")
+                    for attempt in range(max_retries):
+                        update_response = self.falcon_fw.update_policy_container(
+                            ids=policy_id,
+                            body=update_body
+                        )
+
+                        if update_response['status_code'] in [200, 201]:
+                            self.logger.info(f"Successfully assigned {len(new_rg_ids)} rule groups to policy '{original_name}'")
+                            break
+                        elif attempt < max_retries - 1:
+                            # Retry on failure (except last attempt)
+                            self.logger.warning(f"Rule group assignment attempt {attempt + 1} failed, retrying in {retry_delay}s...")
+                            time.sleep(retry_delay)
+                        else:
+                            # Final attempt failed
+                            print_warning(f"Policy created but failed to assign rule groups after {max_retries} attempts: {update_response['body'].get('errors')}")
+                            self.logger.error(f"Failed to assign rule groups to policy '{original_name}' after {max_retries} attempts: {update_response['body'].get('errors')}")
 
             return policy_id
 
